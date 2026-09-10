@@ -1,0 +1,25 @@
+name: Release integration
+
+# Tag the integration release as vX.Y.Z; the tag must equal manifest.version.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag matches manifest.version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(python3 -c 'import json;print(json.load(open("custom_components/sungrow/manifest.json"))["version"])')"
+          test "$tag" = "$version" || { echo "tag $tag != manifest version $version"; exit 1; }
+      - name: Zip the integration
+        run: cd custom_components/sungrow && zip -r ../../sungrow.zip .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: sungrow.zip

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  library:
+    name: Library (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install library with its dev group
+        working-directory: packages/sungrow-inverter
+        run: uv sync --no-workspace
+      - name: Ruff
+        working-directory: packages/sungrow-inverter
+        run: |
+          uv run --with ruff ruff format --check .
+          uv run --with ruff ruff check .
+      - name: Tests
+        working-directory: packages/sungrow-inverter
+        run: uv run pytest -q
+      - name: Build
+        working-directory: packages/sungrow-inverter
+        run: uv build
+
+  workspace:
+    name: Workspace checks (integration, Python 3.14)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - run: uv sync
+      - run: scripts/check.sh
+
+  hassfest:
+    name: hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration

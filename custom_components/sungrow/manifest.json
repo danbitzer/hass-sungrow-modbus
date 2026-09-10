@@ -1,0 +1,22 @@
+{
+  "domain": "sungrow",
+  "name": "Sungrow SH-T Hybrid Inverter",
+  "codeowners": [
+    "@danbitzer"
+  ],
+  "dependencies": [
+    "modbus"
+  ],
+  "documentation": "https://github.com/danbitzer/hass-sungrow-modbus",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/danbitzer/hass-sungrow-modbus/issues",
+  "loggers": [
+    "sungrow_inverter",
+    "modbus_connection"
+  ],
+  "requirements": [
+    "sungrow-inverter==0.1.0a1"
+  ],
+  "version": "0.1.0"
+}

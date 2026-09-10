@@ -1,0 +1,6 @@
+{
+  "name": "Sungrow SH-T Hybrid Inverter",
+  "content_in_root": false,
+  "render_readme": true,
+  "homeassistant": "2026.9.0"
+}

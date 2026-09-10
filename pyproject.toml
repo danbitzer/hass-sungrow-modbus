@@ -1,0 +1,52 @@
+[project]
+name = "hass-sungrow-modbus"
+version = "0.0.0"
+description = "Home Assistant integration for Sungrow SH-T hybrid inverters (workspace root; not published)"
+requires-python = ">=3.14.2"
+license = { text = "MIT" }
+
+[tool.uv.workspace]
+members = ["packages/sungrow-inverter"]
+
+[tool.uv.sources]
+sungrow-inverter = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "sungrow-inverter",
+    # Pins homeassistant==2026.9.1 and its test stack.
+    "pytest-homeassistant-custom-component==0.13.364",
+    # homeassistant.components.modbus imports both the legacy pymodbus hub and
+    # the tmodbus backend; mirror homeassistant/components/modbus/manifest.json
+    # exactly and bump the three together.
+    "pymodbus==3.13.1",
+    "modbus-connection[tmodbus]==4.10.0",
+    "tmodbus==0.6.2",
+    "ruff>=0.15",
+    "mypy>=1.19",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests", "packages/sungrow-inverter/tests"]
+# Two `tests` packages (workspace + library) collide under the default mode.
+addopts = "--import-mode=importlib"
+
+[tool.ruff]
+target-version = "py313"
+# ruff formats fenced code in Markdown; the plan's sketches are not code.
+extend-exclude = ["*.md"]
+src = ["packages/sungrow-inverter/src", "custom_components"]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = ["sungrow_inverter", "custom_components"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["packages/sungrow-inverter/src"]

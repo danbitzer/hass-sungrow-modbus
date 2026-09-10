@@ -1,0 +1,18 @@
+# Local-only: raw captures with real serials/hosts, HA dev config, secrets
+.testdata/
+.env
+config/
+secrets.yaml
+
+# Python / tooling
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/

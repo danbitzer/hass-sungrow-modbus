@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sungrow-inverter"
+version = "0.1.0a1"
+description = "Read and control Sungrow SH-T hybrid inverters over Modbus, built on modbus-connection."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Daniel Bitzer" }]
+keywords = ["modbus", "sungrow", "inverter", "battery", "home-assistant"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Home Automation",
+]
+# Protocol + the device-modelling framework. The caller injects a ModbusUnit
+# built from whichever backend it chooses (tmodbus, pymodbus, or the mock).
+dependencies = ["modbus-connection>=4.10,<5"]
+
+[project.optional-dependencies]
+# Concrete backend for scripts/query.py.
+cli = ["modbus-connection[tmodbus]>=4.10,<5"]
+
+[project.urls]
+Homepage = "https://github.com/danbitzer/hass-sungrow-modbus"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sungrow_inverter"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
