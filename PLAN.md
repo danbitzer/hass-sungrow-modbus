@@ -1,6 +1,8 @@
 # hass-sungrow-modbus — implementation plan
 
-Status: draft, 2026-09-11. Research complete; implementation not started.
+Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards).
+Repository is private for now, so the HACS validation job is advisory
+(`continue-on-error`) until it is made public.
 
 ## 1. Context
 
