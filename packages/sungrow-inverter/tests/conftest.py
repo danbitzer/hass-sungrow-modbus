@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
+from modbus_connection.cli_helper import CountingUnit
 from modbus_connection.encode import encode_string
 from modbus_connection.mock import MockModbusUnit
 
@@ -152,11 +152,11 @@ def load_fixture(name: str) -> dict[str, dict[int, int | bool]]:
     }
 
 
-class FlakyUnit:
-    """Fail the first ``failures`` matching reads with ``error``, then delegate.
+class FlakyUnit(CountingUnit):
+    """Fail the first ``failures`` matching reads/writes with ``error``, then delegate.
 
-    Only the read and write operations a component uses are wrapped; the
-    rest are delegated untouched.
+    Built on the framework's ``CountingUnit`` so it implements the whole
+    ``ModbusUnit`` protocol; only the four register operations are wrapped.
     """
 
     def __init__(
@@ -167,7 +167,7 @@ class FlakyUnit:
         *,
         address: int | None = None,
     ) -> None:
-        self._unit = unit
+        super().__init__(unit)
         self._error = error
         self.failures_left = failures
         self._address = address
@@ -179,25 +179,18 @@ class FlakyUnit:
             self.failures_left -= 1
             raise self._error
 
-    @property
-    def connected(self) -> bool:
-        return self._unit.connected
-
     async def read_input_registers(self, address: int, count: int) -> list[int]:
         self._maybe_fail(address)
-        return await self._unit.read_input_registers(address, count)
+        return await super().read_input_registers(address, count)
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
         self._maybe_fail(address)
-        return await self._unit.read_holding_registers(address, count)
+        return await super().read_holding_registers(address, count)
 
     async def write_register(self, address: int, value: int) -> None:
         self._maybe_fail(address)
-        await self._unit.write_register(address, value)
+        await super().write_register(address, value)
 
     async def write_registers(self, address: int, values: list[int]) -> None:
         self._maybe_fail(address)
-        await self._unit.write_registers(address, values)
-
-    def __getattr__(self, name: str) -> Callable[..., Awaitable[Any]]:
-        return getattr(self._unit, name)
+        await super().write_registers(address, values)

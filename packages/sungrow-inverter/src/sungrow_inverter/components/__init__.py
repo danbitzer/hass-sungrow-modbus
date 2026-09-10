@@ -8,8 +8,8 @@ from .battery import Battery, BatteryPower
 from .control import Control
 from .energy import Energy
 from .firmware import FirmwareInfo
-from .identity import Identity
-from .realtime import AcDc, Backup, Flows, GridPhases, Meter
+from .identity import Identity, Ratings
+from .realtime import AcDc, Backup, Flows, GridPhases, Meter, MeterPhases
 from .settings import AplShadow, BatteryLimits, Settings, StartPower
 
 __all__ = [
@@ -27,6 +27,8 @@ __all__ = [
     "GridPhases",
     "Identity",
     "Meter",
+    "MeterPhases",
+    "Ratings",
     "Settings",
     "StartPower",
     "SungrowHolding",

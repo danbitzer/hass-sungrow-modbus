@@ -7,6 +7,7 @@ from modbus_connection import (
     IllegalDataAddressError,
     ModbusConnectionError,
     ModbusTimeoutError,
+    ModbusUnit,
     ServerDeviceBusyError,
     ServerDeviceFailureError,
 )
@@ -122,3 +123,51 @@ def test_policy_delays_double() -> None:
     assert not policy.should_retry(IllegalDataAddressError())
     assert policy.should_retry(ModbusTimeoutError())
     assert not policy.should_retry(ModbusConnectionError())
+
+
+async def test_wrapper_implements_the_whole_unit_protocol(
+    unit: MockModbusUnit,
+) -> None:
+    retrying = RetryingUnit(unit)
+    assert isinstance(retrying, ModbusUnit)
+    assert retrying.wrapped is unit
+    assert retrying.connected is unit.connected
+
+    # the pass-through operations reach the unit untouched
+    unit.set_response("read_exception_status", 0x11)
+    assert await retrying.read_exception_status() == 0x11
+    unit.set_response("report_server_id", b"\x01SH")
+    assert await retrying.report_server_id() == b"\x01SH"
+    unit.set_response("read_fifo_queue", [1, 2])
+    assert await retrying.read_fifo_queue(0) == [1, 2]
+    unit.set_response("read_device_identification", {0: b"Sungrow"})
+    assert await retrying.read_device_identification() == {0: b"Sungrow"}
+    unit.set_response("read_file_record", [7])
+    assert await retrying.read_file_record(1, 2, 1) == [7]
+    await retrying.write_file_record(1, 2, [7])
+    unit.set_response("diagnostics", 5)
+    assert await retrying.diagnostics(0) == 5
+    unit.set_response("get_comm_event_counter", (True, 3))
+    assert await retrying.get_comm_event_counter() == (True, 3)
+    unit.set_response("get_comm_event_log", b"log")
+    assert await retrying.get_comm_event_log() == b"log"
+
+    unit.holding[13017] = 0x55
+    await retrying.mask_write_register(13017, 0, 0xAA)
+    assert unit.holding[13017] == 0xAA
+    assert await retrying.read_write_registers(13017, 1, 13017, [0x55]) == [0x55]
+
+    unit.coils[3] = True
+    assert await retrying.read_coils(3, 1) == [True]
+    assert await retrying.read_discrete_inputs(3, 1) == [False]
+    await retrying.write_coil(4, True)
+    await retrying.write_coils(5, [True, False])
+    assert unit.coils[4] is True and unit.coils[5] is True
+
+    retrying.set_message_spacing(0.1)
+    assert unit.message_spacing == 0.1
+    fired: list[str] = []
+    unsubscribe = retrying.on_connection_lost(lambda: fired.append("lost"))
+    await retrying.disconnect()
+    assert fired == []  # disconnect() drops the link without firing
+    unsubscribe()

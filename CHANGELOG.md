@@ -8,6 +8,15 @@
   `SungrowInverter` with `async_probe`, realtime/settings updates and
   `UpdateReport`, `RetryingUnit` for WiNet-S exception-4 storms, and the
   read-only `scripts/query.py` (serial scrubbed from `--raw` dumps).
+- Review fixes: S32 sentinel (0x7FFFFFFF → None) on load, export and meter
+  powers so a missing meter cannot read as 2 GW; identity split into
+  `Identity` (model gate) and optional `Ratings` so a refused ratings
+  register cannot stop setup; undocumented meter phase registers moved to
+  an optional `MeterPhases`; per-component refresh times and one-sweep raw
+  collection for diagnostics; aa55 registers treat 0 as unserved; the
+  no-real-serials guard also decodes register-word serials in JSON dumps;
+  the CLI masks the serial and never sweeps the inverter twice; mypy strict
+  now covers scripts, tests and the integration; library floor is 3.13.
 - Repository skeleton: uv workspace with the `sungrow-inverter` library and
   the `sungrow` custom integration stub, CI, version sync, and the
   no-real-serials guard.

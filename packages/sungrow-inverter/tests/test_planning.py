@@ -21,6 +21,8 @@ from sungrow_inverter.components import (
     GridPhases,
     Identity,
     Meter,
+    MeterPhases,
+    Ratings,
     Settings,
     StartPower,
 )
@@ -28,11 +30,13 @@ from sungrow_inverter.const import MAX_SPAN
 
 INPUT_COMPONENTS = (
     Identity,
+    Ratings,
     FirmwareInfo,
     AcDc,
     Flows,
     GridPhases,
     Meter,
+    MeterPhases,
     Backup,
     Battery,
     BatteryPower,
@@ -97,7 +101,8 @@ async def test_realtime_poll_costs_a_known_number_of_reads(
     await inverter.async_update_realtime()
     blocks = unit.read_events
     assert all(b.register_type == "input" for b in blocks)
-    # ac_dc 3, flows 1, grid_phases 1, meter 2, backup 1, battery 2, battery_power 1
+    # ac_dc 3, flows 1, grid_phases 1, meter 1, meter_phases 1, backup 1,
+    # battery 2, battery_power 1
     assert len(blocks) == 11
     assert ReadEvent("input", 5010, 11) in blocks
     assert ReadEvent("input", 12999, 12) in blocks
@@ -130,8 +135,23 @@ async def test_two_mppt_model_never_reads_mppt3(unit: MockModbusUnit) -> None:
     assert inverter.ac_dc.mppt3_power is None
     assert inverter.ac_dc.mppt1_voltage == 380.0
     assert inverter.ac_dc.total_dc_power == 6250
+    raw = await inverter.async_read_raw()
     for event in unit.read_events:
         if event.register_type != "input":
             continue
         covered = range(event.address, event.address + event.count)
         assert 5014 not in covered and 5015 not in covered, event
+    assert 5014 not in raw["input"] and 5015 not in raw["input"]
+    assert 5013 in raw["input"] and 5016 in raw["input"]
+
+
+async def test_setup_costs_a_known_number_of_reads(
+    inverter: SungrowInverter, unit: MockModbusUnit
+) -> None:
+    await inverter.async_update_realtime()
+    setup = unit.read_events[:-11]
+    # identity 2, ratings 4, firmware 1, then the optional probes:
+    # meter_phases 1, start_power 1, apl_shadow 1, alarms 1
+    assert len(setup) == 11
+    assert ReadEvent("input", 4951, 32) in setup
+    assert ReadEvent("input", 4989, 13) in setup

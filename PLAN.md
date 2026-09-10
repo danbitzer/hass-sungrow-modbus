@@ -1,6 +1,6 @@
 # hass-sungrow-modbus — implementation plan
 
-Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library: enums, models, components, `SungrowInverter`, `RetryingUnit`, CLI; 117 tests against the mock). Next: M2 live read-only run.
+Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library: enums, models, components, `SungrowInverter`, `RetryingUnit`, CLI; reviewed and fixed — 147 tests against the mock). Next: M2 live read-only run.
 Repository is private for now, so the HACS validation job is advisory
 (`continue-on-error`) until it is made public.
 
@@ -65,6 +65,8 @@ commit messages, the plan, or diagnostics samples.
   are published only with the owner's agreement.
 
 ### Migration must preserve history
+
+Decided 2026-09-11: `reactive_power` keeps the spec unit `var` (mkaiser's entity says `W`); it is a new entity, not a port — a wrong unit class is worse than a fresh history. `battery_soh` and `self_consumption_today` need the same per-entity check at M4 (mkaiser rounds both to 0 decimals).
 
 Numbat's config, its dashboard and 175 days of long-term statistics are keyed
 by the mkaiser entity ids (`sensor.battery_level`, `sensor.battery_power`,
@@ -388,10 +390,10 @@ any adjacent pair the WiNet-S proves it serves in one block. No
 `ComponentGroup` on the polling path (a refused block would fail the group).
 
 ```python
-INPUT_RANGES = ((4951, 4983), (4989, 5005), (5007, 5007), (5010, 5020), (5032, 5034),
+INPUT_RANGES = ((4951, 4982), (4989, 5004), (5007, 5007), (5010, 5020), (5032, 5034),
                 (5213, 5214), (5241, 5241), (5600, 5607), (5621, 5622), (5627, 5627),
                 (5630, 5630), (5634, 5635), (5638, 5638), (5722, 5726), (5740, 5745),
-                (12999, 13028), (13030, 13046), (13049, 13078), (13249, 13293))
+                (12999, 13028), (13030, 13042), (13044, 13046), (13049, 13078), (13249, 13293))
 HOLDING_RANGES = ((13017, 13017), (13049, 13051), (13057, 13058), (13073, 13074),
                   (13086, 13089), (13099, 13099), (31212, 31212), (33046, 33047), (33148, 33149))
 class SungrowInput(Component):   register_space = "input";   register_ranges = INPUT_RANGES;   max_span = 64
@@ -400,12 +402,14 @@ class SungrowHolding(Component): register_space = "holding"; register_ranges = H
 
 | Component | Space | Fields (addr → name) | Poll |
 |---|---|---|---|
-| `Identity` | input | 4951 protocol_version u32; 4953 arm_version str15; 4968 dsp_version str15; 4989 serial str10; 4999 device_type_code; 5000 nominal_power ×100 W; 5001 output_type; 5621/5622 export_limit_min/max ×10 W; 5627 bdc_rated_power ×100 W; 5634/5635 bms_max_charge/discharge_current; 5638 battery_capacity ×0.01 kWh | once |
+| `Identity` | input | 4951 protocol_version u32; 4953 arm_version str15; 4968 dsp_version str15; 4989 serial str10; 4999 device_type_code; 5000 nominal_power ×100 W; 5001 output_type — two adjacent blocks only, so the model gate cannot be stopped by a refused ratings register | once |
+| `Ratings` | input | 5621/5622 export_limit_min/max ×10 W; 5627 bdc_rated_power ×100 W; 5634/5635 bms_max_charge/discharge_current; 5638 battery_capacity ×0.01 kWh | once, optional |
 | `FirmwareInfo` | input | 13249 inverter_firmware str15; 13264 comm_module_firmware str15; 13279 battery_firmware str15 | once, optional |
 | `AcDc` | input | 5010–5015 mppt1–3 voltage/current ×0.1 (mppt3 `restrict_fields` off on 2-MPPT models); 5016 total_dc_power u32; 5018–5020 phase voltages ×0.1; 5032 reactive_power s32; 5034 power_factor ×0.001; 5241 grid_frequency ×0.01 | 10 s |
-| `Flows` | input | 12999 running_state_raw + running_state; 13000 power_flow flags; 13007 load_power s32; 13009 export_power s32 (positive = export) | 10 s |
+| `Flows` | input | 12999 running_state_raw + running_state; 13000 power_flow flags; 13007 load_power s32; 13009 export_power s32 (positive = export; both nan 0x7FFFFFFF) | 10 s |
 | `GridPhases` | input | 13030–13032 phase currents ×0.1 signed; 13033 total_active_power s32 | 10 s |
-| `Meter` | input | 5600 meter_active_power s32; 5602/5604/5606 per-phase; 5740–5742 meter voltages ×0.1 (nan 0x7FFF); 5743–5745 meter currents ×0.01 | 10 s |
+| `Meter` | input | 5600 meter_active_power s32; 5602/5604/5606 per-phase (all nan 0x7FFFFFFF: no meter / single-phase meter) | 10 s |
+| `MeterPhases` | input | 5740–5742 meter voltages ×0.1 (nan 0x7FFF); 5743–5745 meter currents ×0.01 — undocumented (mkaiser), own component so a refusal cannot take `Meter` down | 10 s, optional |
 | `Backup` | input | 5722–5724 backup phase power s16; 5725 total_backup_power s32 | 10 s |
 | `Battery` | input | 5630 battery_current ×0.1 signed; 13019 voltage ×0.1; 13022 level ×0.1 %; 13023 soh ×0.1 %; 13024 temperature ×0.1 signed | 10 s |
 | `BatteryPower` | input | 5213 battery_power s32 W (own component — refused on some paths) | 10 s |
@@ -445,14 +449,17 @@ class Settings(SungrowHolding):
 ### 6.5 Device object (`inverter.py`)
 ```python
 class SungrowInverter:
-    def __init__(self, unit: ModbusUnit, *, model: ShtModel, battery_max_power_w: int | None = None, fence_power_w: int = 10): ...
+    def __init__(self, unit: ModbusUnit, *, battery_max_power_w: int | None = None, fence_power_w: int = 10): ...
+    model: ShtModel | None                                    # detected by the first update; the wire is authoritative (no kwarg)
     @classmethod
-    async def async_probe(cls, unit) -> ProbeResult          # Identity only; raises UnsupportedModelError
-    async def async_update_realtime(self) -> UpdateReport     # ac_dc, flows, grid_phases, meter, backup, battery, battery_power
-    async def async_update_settings(self) -> UpdateReport     # settings, battery_limits, start_power, apl_shadow, energy, alarms
-    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]
-    battery: BatteryControl;  effective_battery_mode: BatteryMode | None
-    battery_max_power_w: int   # option override, else identity.bdc_rated_power
+    async def async_probe(cls, unit) -> ProbeResult          # Identity (+ optional Ratings); raises UnsupportedModelError
+    async def async_update_realtime(self, *, collect_raw=False) -> UpdateReport   # ac_dc, flows, grid_phases, meter, meter_phases, backup, battery, battery_power
+    async def async_update_settings(self, *, collect_raw=False) -> UpdateReport   # settings, battery_limits, energy, start_power, apl_shadow, alarms
+    async def async_read_raw(self) -> Raw                     # one poll with collect_raw; a failing component is left out, not fatal
+    def last_refresh(self, name) -> float | None              # time.monotonic() of the last successful read — the M3 freshness guard reads this
+    battery: Battery                                          # the measurement component
+    battery_control: BatteryControl;  effective_battery_mode: BatteryMode | None   # M3 (named battery_control: `battery` is taken)
+    battery_max_power_w: int | None  # option override, else ratings.bdc_rated_power; None = unknown → SettingsUnavailableError in M3, never 0
 ```
 `_async_setup()` on first update: read `identity`, apply `restrict_fields`
 for the MPPT count, probe optionals (`IllegalDataAddress`/`IllegalFunction` →
@@ -579,10 +586,11 @@ value}], "skipped": [...], "verified"}` — returned as the action response.
 spec says the ratio register 13088 takes precedence over the W value).
 
 ### 6.8 CLI (`scripts/query.py`)
-`uv run --package sungrow-inverter python scripts/query.py tcp $SUNGROW_HOST --unit 1 [--raw out.json]`
-probes, prints the model-gate result, runs both update methods through
-`RetryingUnit`, prints every component, the read count and failed components,
-and optionally dumps `async_read_raw()` JSON for the test fixture. Read-only;
+`uv run --package sungrow-inverter python packages/sungrow-inverter/scripts/query.py $SUNGROW_HOST --unit 1 [--raw .testdata/raw.json]`
+runs one `async_update(collect_raw=...)` sweep through `RetryingUnit`, prints the
+model-gate result, every component (serial masked unless `--show-serial`), the
+read and retry counts and failed components, and optionally dumps the raw JSON
+(serial replaced by `A123456789` unless `--keep-serial`) for the test fixture. Read-only;
 M3 adds `--apply MODE` behind an explicit confirmation flag.
 
 ## 7. Integration design (`custom_components/sungrow`)
@@ -819,7 +827,7 @@ Integration (`pytest-homeassistant-custom-component`; conftest patches
 |---|---|---|
 | M0 | Repo skeleton, uv workspace (Python 3.14 for the integration), CI (ruff/mypy/pytest/hassfest/HACS), LICENSE + NOTICE, repo `CLAUDE.md` with §2a, `.testdata/` gitignored, `tests/test_no_real_serials.py`, `scripts/sync_version.py` (`--set` re-installs, `--check` in CI + pytest), PyPI trusted-publishing project + `lib-v0.0.1a0` dry run | `uv sync && scripts/check.sh` green on empty tests; hassfest passes on the stub manifest; `python -c "from homeassistant.components.modbus import async_get_unit"` in the workspace venv; the serial test fails on a planted `A2…` string and passes on `A123456789` |
 | M1 | Library: enums, models, fields, components, `SungrowInverter`, `UpdateReport`, `RetryingUnit`, CLI | library tests green against the mock (spec-derived seeds); `query.py --help` runs without a backend |
-| M2 | Read-only live run: `query.py tcp $SUNGROW_HOST` while the mkaiser YAML is still loaded; capture `--raw` into `tests/fixtures/sh15t_p063.json`; record which merged blocks the WiNet-S serves; widen the ranges | values match the mkaiser entities in HA at the same moment (battery_level, load_power, total_dc_power, battery_power sign, settings); no exception-4 storms with retries on; fixture replays green |
+| M2 | Read-only live run: `query.py $SUNGROW_HOST` while the mkaiser YAML is still loaded; capture `--raw` into `tests/fixtures/sh15t_p063.json`; record which merged blocks the WiNet-S serves; widen the ranges. Also record: whether holding 13049/13050 are genuinely served (a WiNet-S answers 0 for an unserved register, and 0 is a valid EMS mode — the M3 write guard must not trust a 0 it cannot distinguish; cross-check `ems_mode` against `running_state` COMPULSORY/EXTERNAL_EMS); whether the undocumented 13014–13015 hole inside the `Energy` block reads; whether `MeterPhases` (5740–5745) and `Ratings` answer | values match the mkaiser entities in HA at the same moment (battery_level, load_power, total_dc_power, battery_power sign, settings); no exception-4 storms with retries on; fixture replays green |
 | M3 | `BatteryControl` + control tests; CLI `--apply` (guarded) | with the Numbat actuator **disabled**: `apply(self_consumption)` = zero writes; `no_charge` → HA shows max charge power 10; `self_consumption` restores 12000; `forced_charge 2000` for 2 min then back; `set_export_limit 0/12000`; `set_pv_limitation true/false` (13018 verified live); iSolarCloud/HA numbers agree; note whether raw 0 is accepted on 33047 |
 | M4 | Integration: config flow, coordinators, sensor/binary_sensor, diagnostics, strings; publish `lib-v0.1.0a1`; install on Dan's HA | config flow rejects a fake non-SHT code in tests; on the real HA both mkaiser and `sungrow` entities coexist briefly and match; diagnostics download works |
 | M5 | number/select/switch/button + actions + `sensor.battery_mode`; integration tests for actions | Developer Tools calls with the actuator disabled; response shows writes/skipped/verified; `sensor.battery_mode` tracks; repeat calls are write-free |

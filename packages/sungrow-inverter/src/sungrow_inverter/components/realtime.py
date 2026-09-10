@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from modbus_connection.model import NumberField, flags, gauge, int32, integer, uint32
 
-from ..const import S16_NAN, U16_NAN
+from ..const import S16_NAN, S32_NAN, U16_NAN
 from ..enums import RUNNING_STATES, InverterState, PowerFlow
 from .base import SungrowInput
 
@@ -72,9 +72,9 @@ class Flows(SungrowInput):
     """Running state (reg 13000), decoded per Appendix 2."""
     power_flow = flags(13000, PowerFlow)
     """Power flow status bits (reg 13001)."""
-    load_power = int32(13007, word_order="little", unit="W")
+    load_power = int32(13007, word_order="little", nan=S32_NAN, unit="W")
     """Load power (reg 13008); valid with a smart meter connected."""
-    export_power = int32(13009, word_order="little", unit="W")
+    export_power = int32(13009, word_order="little", nan=S32_NAN, unit="W")
     """Export power (reg 13010): positive = exporting, negative = importing."""
 
 
@@ -92,16 +92,30 @@ class GridPhases(SungrowInput):
 
 
 class Meter(SungrowInput):
-    """The smart meter at the grid connection."""
+    """The smart meter at the grid connection (Table 3, regs 5601-5608).
 
-    meter_active_power = int32(5600, word_order="little", unit="W")
+    Every value reads None (sentinel 0x7FFFFFFF) without a smart meter, and
+    the per-phase values also on a single-phase meter.
+    """
+
+    meter_active_power = int32(5600, word_order="little", nan=S32_NAN, unit="W")
     """Meter active power (reg 5601): positive = importing, negative = exporting."""
-    meter_phase_a_active_power = int32(5602, word_order="little", unit="W")
+    meter_phase_a_active_power = int32(5602, word_order="little", nan=S32_NAN, unit="W")
     """Meter phase A active power (reg 5603)."""
-    meter_phase_b_active_power = int32(5604, word_order="little", unit="W")
+    meter_phase_b_active_power = int32(5604, word_order="little", nan=S32_NAN, unit="W")
     """Meter phase B active power (reg 5605)."""
-    meter_phase_c_active_power = int32(5606, word_order="little", unit="W")
+    meter_phase_c_active_power = int32(5606, word_order="little", nan=S32_NAN, unit="W")
     """Meter phase C active power (reg 5607)."""
+
+
+class MeterPhases(SungrowInput):
+    """Meter phase voltages and currents (regs 5741-5746).
+
+    Undocumented: absent from the protocol document, taken from mkaiser's
+    package. Kept apart from ``Meter`` so a firmware that refuses them
+    cannot take the documented meter powers down; optional at setup.
+    """
+
     meter_phase_a_voltage = gauge(5740, 0.1, nan=S16_NAN, unit="V")
     """Meter phase A voltage (reg 5741)."""
     meter_phase_b_voltage = gauge(5741, 0.1, nan=S16_NAN, unit="V")

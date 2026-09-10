@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -30,12 +31,14 @@ from .components import (
     GridPhases,
     Identity,
     Meter,
+    MeterPhases,
+    Ratings,
     Settings,
     StartPower,
 )
-from .exceptions import UnsupportedModelError
+from .exceptions import SungrowError
 from .models import ShtModel, model_for
-from .report import UpdateReport
+from .report import Raw, UpdateReport
 
 if TYPE_CHECKING:
     from modbus_connection import ModbusUnit
@@ -47,6 +50,7 @@ _REALTIME: tuple[str, ...] = (
     "flows",
     "grid_phases",
     "meter",
+    "meter_phases",
     "backup",
     "battery",
     "battery_power",
@@ -59,8 +63,8 @@ _SLOW: tuple[str, ...] = (
     "apl_shadow",
     "alarms",
 )
-_OPTIONAL: tuple[str, ...] = ("start_power", "apl_shadow", "alarms")
-"""Components a firmware may refuse; a refusal at setup drops them."""
+_OPTIONAL: tuple[str, ...] = ("meter_phases", "start_power", "apl_shadow", "alarms")
+"""Polled components a firmware may refuse; a refusal at setup drops them."""
 
 DEFAULT_FENCE_POWER_W = 10
 """The battery power limit (W) that counts as "fenced": the register's minimum."""
@@ -69,7 +73,7 @@ DEFAULT_FENCE_POWER_W = 10
 async def _optional[C: Component](component: C) -> C | None:
     """Read an optional sub-system; None if this device does not serve it."""
     try:
-        await component.async_update()
+        await component.async_update(notify=False)
     except (IllegalDataAddressError, IllegalFunctionError):
         return None
     return component
@@ -102,17 +106,18 @@ class SungrowInverter:
         self,
         unit: ModbusUnit,
         *,
-        model: ShtModel | None = None,
         battery_max_power_w: int | None = None,
         fence_power_w: int = DEFAULT_FENCE_POWER_W,
     ) -> None:
         self._unit = unit
-        self.model: ShtModel | None = model
+        self.model: ShtModel | None = None
+        """The detected model; set by the first update."""
         self._battery_max_power_w = battery_max_power_w
         self.fence_power_w = fence_power_w
 
         # Read once at setup.
         self.identity = Identity(unit)
+        self.ratings: Ratings | None = Ratings(unit)
         self.firmware: FirmwareInfo | None = None
 
         # Polled fast.
@@ -120,6 +125,7 @@ class SungrowInverter:
         self.flows = Flows(unit)
         self.grid_phases = GridPhases(unit)
         self.meter = Meter(unit)
+        self.meter_phases: MeterPhases | None = MeterPhases(unit)
         self.backup = Backup(unit)
         self.battery = Battery(unit)
         self.battery_power = BatteryPower(unit)
@@ -137,6 +143,7 @@ class SungrowInverter:
 
         self._realtime: tuple[str, ...] | None = None
         self._slow: tuple[str, ...] = ()
+        self._refreshed: dict[str, float] = {}
 
     # -- setup ---------------------------------------------------------------
 
@@ -151,23 +158,23 @@ class SungrowInverter:
 
     @classmethod
     async def async_probe(cls, unit: ModbusUnit) -> ProbeResult:
-        """Read the identity block only and gate on the model.
+        """Read the identity block (and the ratings, if served) and gate on the model.
 
         Raises ``UnsupportedModelError`` for a non-SH-T device type code, and
         the modbus-connection error if the device cannot be read.
         """
         identity = Identity(unit)
-        await identity.async_update()
-        code = identity.device_type_code
-        if code is None:
-            raise UnsupportedModelError(0xFFFF)
-        model = model_for(code)
+        await identity.async_update(notify=False)
+        model = model_for(_device_type_code(identity))
+        ratings = await _optional(Ratings(unit))
         return ProbeResult(
-            device_type_code=code,
+            device_type_code=model.code,
             model=model,
             serial=identity.serial or None,
             nominal_power_w=_as_int(identity.nominal_power),
-            bdc_rated_power_w=_as_int(identity.bdc_rated_power),
+            bdc_rated_power_w=(
+                None if ratings is None else _as_int(ratings.bdc_rated_power)
+            ),
             protocol_version=identity.protocol_version_text,
             arm_version=identity.arm_version or None,
             dsp_version=identity.dsp_version or None,
@@ -177,26 +184,21 @@ class SungrowInverter:
         """Read what never changes and settle which sub-systems are served.
 
         Runs from the first update, and again on the next one if the device
-        was unreachable then.
+        was unreachable then. Listeners are not fired: the poll that follows
+        does that for what it refreshes.
         """
-        await self.identity.async_update()
-        code = self.identity.device_type_code
-        if code is None:
-            raise UnsupportedModelError(0xFFFF)
-        detected = model_for(code)
-        if self.model is not None and self.model.code != code:
-            _LOGGER.warning(
-                "Configured model %s but the inverter reports %s; using %s",
-                self.model.name,
-                detected.name,
-                detected.name,
-            )
-        self.model = detected
+        await self.identity.async_update(notify=False)
+        self.model = model_for(_device_type_code(self.identity))
+        self._refreshed["identity"] = time.monotonic()
 
-        if detected.mppt < 3:
+        if self.model.mppt < 3:
             self.ac_dc.restrict_fields(
                 [n for n in AcDc.declared_fields if not n.startswith("mppt3")]
             )
+
+        if self.ratings is not None and await _optional(self.ratings) is None:
+            _LOGGER.info("Inverter does not serve the ratings block; skipping it")
+            self.ratings = None
 
         firmware = await _optional(FirmwareInfo(self._unit))
         # A WiNet-S answers the block with blank strings rather than refusing it.
@@ -208,23 +210,32 @@ class SungrowInverter:
                 _LOGGER.info("Inverter does not serve %s; skipping it", name)
                 setattr(self, name, None)
 
-        self._realtime = _REALTIME
+        self._realtime = tuple(n for n in _REALTIME if getattr(self, n) is not None)
         self._slow = tuple(n for n in _SLOW if getattr(self, n) is not None)
 
-    async def _ensure_setup(self) -> None:
+    async def _ensure_setup(self) -> tuple[str, ...]:
         if self._realtime is None:
             await self._async_setup()
+        assert self._realtime is not None
+        return self._realtime
 
     # -- polling -------------------------------------------------------------
 
     async def _async_poll(
-        self, names: tuple[str, ...], report: UpdateReport
+        self,
+        names: tuple[str, ...],
+        report: UpdateReport,
+        *,
+        collect_raw: bool = False,
     ) -> UpdateReport:
         """Read each named sub-system on its own, recording what happened."""
         for name in names:
             component: Component = getattr(self, name)
             try:
-                await component.async_update(notify=False)
+                if collect_raw:
+                    read = await component.async_read_raw(notify=False)
+                else:
+                    await component.async_update(notify=False)
             except ModbusConnectionError:
                 raise  # the link is down; the rest would only wait for timeouts
             except ModbusTimeoutError as err:
@@ -235,6 +246,12 @@ class SungrowInverter:
                 report.failed[name] = err
             else:
                 report.updated.append(name)
+                self._refreshed[name] = time.monotonic()
+                if collect_raw:
+                    raw = report.raw if report.raw is not None else {}
+                    for space, values in read.items():
+                        raw.setdefault(space, {}).update(values)
+                    report.raw = raw
         return report
 
     def _notify(self, report: UpdateReport) -> None:
@@ -243,59 +260,87 @@ class SungrowInverter:
             component: Component = getattr(self, name)
             component.notify()
 
-    async def async_update_realtime(self) -> UpdateReport:
+    async def async_update_realtime(self, *, collect_raw: bool = False) -> UpdateReport:
         """Refresh the fast-changing measurements."""
-        await self._ensure_setup()
-        assert self._realtime is not None
-        report = await self._async_poll(self._realtime, UpdateReport())
+        realtime = await self._ensure_setup()
+        report = await self._async_poll(
+            realtime, UpdateReport(), collect_raw=collect_raw
+        )
         self._notify(report)
         return report
 
-    async def async_update_settings(self) -> UpdateReport:
+    async def async_update_settings(self, *, collect_raw: bool = False) -> UpdateReport:
         """Refresh the settings, battery limits, energy counters and alarms."""
         await self._ensure_setup()
-        report = await self._async_poll(self._slow, UpdateReport())
+        report = await self._async_poll(
+            self._slow, UpdateReport(), collect_raw=collect_raw
+        )
         self._notify(report)
         return report
 
-    async def async_update(self) -> UpdateReport:
-        """Refresh every polled sub-system."""
-        await self._ensure_setup()
-        assert self._realtime is not None
-        report = await self._async_poll(self._realtime, UpdateReport())
-        await self._async_poll(self._slow, report)
+    async def async_update(self, *, collect_raw: bool = False) -> UpdateReport:
+        """Refresh every polled sub-system.
+
+        With ``collect_raw`` the same reads also fill ``report.raw`` with the
+        raw words, so one sweep serves both a refresh and a diagnostics dump.
+        """
+        realtime = await self._ensure_setup()
+        report = await self._async_poll(
+            realtime, UpdateReport(), collect_raw=collect_raw
+        )
+        await self._async_poll(self._slow, report, collect_raw=collect_raw)
         self._notify(report)
         return report
 
-    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
-        """Every register this device reads, undecoded — for diagnostics."""
-        await self._ensure_setup()
-        assert self._realtime is not None
+    async def async_read_raw(self) -> Raw:
+        """Every register this device reads, undecoded — for diagnostics.
+
+        Reads the setup blocks too. A component that fails is left out
+        rather than failing the dump, as in a poll.
+        """
+        realtime = await self._ensure_setup()
         names = ["identity"]
+        if self.ratings is not None:
+            names.append("ratings")
         if self.firmware is not None:
             names.append("firmware")
-        names += [*self._realtime, *self._slow]
-        raw: dict[str, dict[int, int | bool]] = {}
-        for name in names:
-            component: Component = getattr(self, name)
-            read = await component.async_read_raw(notify=False)
-            for space, values in read.items():
-                raw.setdefault(space, {}).update(values)
+        names += [*realtime, *self._slow]
+        report = await self._async_poll(tuple(names), UpdateReport(), collect_raw=True)
+        self._notify(report)
+        raw = report.raw or {}
         return {space: dict(sorted(values.items())) for space, values in raw.items()}
+
+    def last_refresh(self, name: str) -> float | None:
+        """``time.monotonic()`` of the component's last successful read, or None."""
+        return self._refreshed.get(name)
 
     # -- derived -------------------------------------------------------------
 
     @property
     def battery_max_power_w(self) -> int | None:
-        """The battery power limit to restore: the option, else BDC rated power."""
+        """The battery power limit to restore: the option, else BDC rated power.
+
+        None until setup has read the ratings, or when the inverter does not
+        report a BDC rating; a caller that needs a write target must treat
+        None as "unknown", not as zero.
+        """
         if self._battery_max_power_w is not None:
             return self._battery_max_power_w
-        return _as_int(self.identity.bdc_rated_power)
+        if self.ratings is None:
+            return None
+        return _as_int(self.ratings.bdc_rated_power)
 
     @property
     def polled_components(self) -> tuple[str, ...]:
         """The names of every component the update methods poll."""
         return (*(self._realtime or ()), *self._slow)
+
+
+def _device_type_code(identity: Identity) -> int:
+    code = identity.device_type_code
+    if code is None:  # the field has no sentinel; only an unread block gives None
+        raise SungrowError("the identity block has not been read")
+    return code
 
 
 def _as_int(value: float | None) -> int | None:

@@ -26,6 +26,8 @@ from sungrow_inverter.components import (
     GridPhases,
     Identity,
     Meter,
+    MeterPhases,
+    Ratings,
     Settings,
     StartPower,
 )
@@ -44,11 +46,17 @@ async def test_identity(unit: MockModbusUnit) -> None:
     assert identity.device_type_code == 0x0E25
     assert identity.nominal_power == 15000
     assert identity.output_type is OutputType.THREE_PHASE_4_WIRE
-    assert identity.export_limit_min == 0
-    assert identity.export_limit_max == 15000
-    assert identity.bdc_rated_power == 15000
-    assert identity.bms_max_charge_current == 200
-    assert identity.battery_capacity == 44.8
+
+
+async def test_ratings(unit: MockModbusUnit) -> None:
+    ratings = Ratings(unit)
+    await ratings.async_update()
+    assert ratings.export_limit_min == 0
+    assert ratings.export_limit_max == 15000
+    assert ratings.bdc_rated_power == 15000
+    assert ratings.bms_max_charge_current == 200
+    assert ratings.bms_max_discharge_current == 200
+    assert ratings.battery_capacity == 44.8
 
 
 async def test_firmware(unit: MockModbusUnit) -> None:
@@ -155,15 +163,47 @@ async def test_meter(unit: MockModbusUnit) -> None:
     await meter.async_update()
     assert meter.meter_active_power == -1200
     assert meter.meter_phase_b_active_power == -400
-    assert meter.meter_phase_a_voltage == 240.1
-    assert meter.meter_phase_c_current == 1.68
+
+
+async def test_meter_phases(unit: MockModbusUnit) -> None:
+    phases = MeterPhases(unit)
+    await phases.async_update()
+    assert phases.meter_phase_a_voltage == 240.1
+    assert phases.meter_phase_c_current == 1.68
 
 
 async def test_meter_voltage_sentinel(unit: MockModbusUnit) -> None:
     unit.input[5740] = [0x7FFF, 0x7FFF, 0x7FFF]
+    phases = MeterPhases(unit)
+    await phases.async_update()
+    assert phases.meter_phase_a_voltage is None
+
+
+async def test_no_smart_meter_reads_none_not_two_gigawatts(
+    unit: MockModbusUnit,
+) -> None:
+    """Without a meter the S32 powers carry 0x7FFFFFFF (mkaiser's nan_value)."""
+    for address in (5600, 5602, 5604, 5606, 13007, 13009):
+        unit.input[address] = [0xFFFF, 0x7FFF]  # low word first
     meter = Meter(unit)
     await meter.async_update()
-    assert meter.meter_phase_a_voltage is None
+    assert meter.meter_active_power is None
+    assert meter.meter_phase_a_active_power is None
+    assert meter.meter_phase_b_active_power is None
+    assert meter.meter_phase_c_active_power is None
+    flows = Flows(unit)
+    await flows.async_update()
+    assert flows.load_power is None
+    assert flows.export_power is None
+
+
+async def test_large_and_negative_s32_values_decode(unit: MockModbusUnit) -> None:
+    unit.input[13007] = [0x0000, 0x0001]  # 65536 W: needs the high word
+    unit.input[13009] = [0xFC18, 0xFFFF]  # -1000 W
+    flows = Flows(unit)
+    await flows.async_update()
+    assert flows.load_power == 65536
+    assert flows.export_power == -1000
 
 
 async def test_backup(unit: MockModbusUnit) -> None:
@@ -189,6 +229,9 @@ async def test_battery_power_sign_is_discharge_positive(
     power = BatteryPower(unit)
     await power.async_update()
     assert power.battery_power == -2500  # charging
+    unit.input[5213] = [3000, 0]
+    await power.async_update()
+    assert power.battery_power == 3000  # discharging
 
 
 async def test_energy(unit: MockModbusUnit) -> None:
@@ -239,15 +282,21 @@ async def test_settings(unit: MockModbusUnit) -> None:
     assert settings.backup_reserve_soc == 20
 
 
-async def test_aa55_decodes_only_the_two_words(unit: MockModbusUnit) -> None:
+async def test_aa55_decodes_only_the_two_words(
+    unit: MockModbusUnit, caplog: pytest.LogCaptureFixture
+) -> None:
     unit.holding[13017] = 0xAA
     unit.holding[13074] = 0  # a WiNet-S answers 0 for an unserved register
-    unit.holding[13086] = 0xFFFF
+    unit.holding[13086] = 0xFFFF  # not implemented
+    unit.holding[13088] = 0x77  # garbage: None, but worth a warning
     settings = Settings(unit)
     await settings.async_update()
     assert settings.pv_power_limitation is True
     assert settings.backup_mode is None
     assert settings.export_limit_enabled is None
+    assert settings.active_power_limit_enabled is None
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1 and "119" in warnings[0].getMessage()
 
 
 async def test_unknown_ems_mode_reads_none(unit: MockModbusUnit) -> None:

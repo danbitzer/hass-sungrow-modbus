@@ -1,4 +1,4 @@
-"""What never changes: model, serial, ratings and limits. Read once."""
+"""What never changes: model and serial, then the ratings. Read once."""
 
 from __future__ import annotations
 
@@ -10,7 +10,12 @@ from .base import SungrowInput
 
 
 class Identity(SungrowInput):
-    """Identity and rating registers (Table 3), read at setup and never polled."""
+    """The identity block (Table 3, regs 4952-5002): what the model gate needs.
+
+    Read at setup and never polled. Kept to two adjacent blocks so a firmware
+    that refuses a ratings register cannot stop setup; those live in
+    ``Ratings``.
+    """
 
     protocol_version = uint32(4951, word_order="little")
     """Protocol version (reg 4952), e.g. 0x01010700 for V1.1.7."""
@@ -26,6 +31,19 @@ class Identity(SungrowInput):
     """Nominal output power (reg 5001), 0.1 kW per count."""
     output_type = enum(5001, OutputType)
     """Output type (reg 5002)."""
+
+    @property
+    def protocol_version_text(self) -> str | None:
+        """The protocol version as ``V1.1.7``."""
+        raw = self.protocol_version
+        if raw is None:
+            return None
+        return f"V{raw >> 24 & 0xFF}.{raw >> 16 & 0xFF}.{raw >> 8 & 0xFF}"
+
+
+class Ratings(SungrowInput):
+    """Limits and ratings (Table 3, regs 5622-5639). Read once; optional."""
+
     export_limit_min = gauge(5621, 10, signed=False, nan=U16_NAN, unit="W")
     """Min. feed-in power limitation value (reg 5622), 0.01 kW per count."""
     export_limit_max = gauge(5622, 10, signed=False, nan=U16_NAN, unit="W")
@@ -38,11 +56,3 @@ class Identity(SungrowInput):
     """Max. discharging current reported by the BMS (reg 5636)."""
     battery_capacity = gauge(5638, 0.01, signed=False, nan=U16_NAN, unit="kWh")
     """Battery capacity, high precision (reg 5639), 0.01 kWh per count."""
-
-    @property
-    def protocol_version_text(self) -> str | None:
-        """The protocol version as ``V1.1.7``."""
-        raw = self.protocol_version
-        if raw is None:
-            return None
-        return f"V{raw >> 24 & 0xFF}.{raw >> 16 & 0xFF}.{raw >> 8 & 0xFF}"

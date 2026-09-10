@@ -3,8 +3,9 @@
     uv run --package sungrow-inverter python scripts/query.py "$SUNGROW_HOST" \
         --unit "${SUNGROW_UNIT:-1}" [--raw .testdata/raw.json]
 
-The raw dump replaces the serial number with the stand-in ``A123456789``
-unless ``--keep-serial`` is given, so it can be committed as a fixture.
+The serial number is masked on the terminal unless ``--show-serial`` is
+given, and the raw dump replaces it with the stand-in ``A123456789`` unless
+``--keep-serial`` is given, so the dump can be committed as a fixture.
 """
 
 from __future__ import annotations
@@ -21,9 +22,10 @@ from modbus_connection.cli_helper import (
     CountingUnit,
     add_connection_args,
     connect_from_args,
-    print_component,
+    field_rows,
 )
 from modbus_connection.encode import encode_string
+from modbus_connection.model import Component, RegisterField
 
 from sungrow_inverter import (
     RetryingUnit,
@@ -32,11 +34,13 @@ from sungrow_inverter import (
     UnsupportedModelError,
 )
 from sungrow_inverter.components import Identity
+from sungrow_inverter.report import Raw
 
 STAND_IN_SERIAL = "A123456789"
+MASK = "**********"
 
 
-def scrub_serial(raw: dict[str, dict[int, int | bool]]) -> None:
+def scrub_serial(raw: Raw) -> None:
     """Replace the serial registers in a raw dump with the stand-in."""
     inputs = raw.get("input")
     if inputs is None:
@@ -46,6 +50,19 @@ def scrub_serial(raw: dict[str, dict[int, int | bool]]) -> None:
     for offset, word in enumerate(words):
         if field.address + offset in inputs:
             inputs[field.address + offset] = word
+
+
+def print_block(component: Component, title: str, *, mask: frozenset[str]) -> None:
+    """Print a component's rows, masking the named fields."""
+    rows = [
+        (name, MASK if name in mask else value) for name, value in field_rows(component)
+    ]
+    print(title)
+    print("-" * len(title))
+    width = max((len(name) for name, _ in rows), default=0)
+    for name, value in rows:
+        print(f"  {name.ljust(width)}  {value}")
+    print()
 
 
 def _parse() -> argparse.Namespace:
@@ -63,12 +80,17 @@ def _parse() -> argparse.Namespace:
         "--raw",
         type=Path,
         metavar="FILE",
-        help="also dump async_read_raw() as JSON to FILE (serial scrubbed)",
+        help="also dump the raw registers as JSON to FILE (serial scrubbed)",
     )
     parser.add_argument(
         "--keep-serial",
         action="store_true",
         help="keep the real serial in the --raw dump (never commit such a file)",
+    )
+    parser.add_argument(
+        "--show-serial",
+        action="store_true",
+        help="print the real serial instead of masking it",
     )
     parser.add_argument(
         "--no-retry",
@@ -95,41 +117,68 @@ async def main() -> int:
     counting = CountingUnit(conn.for_unit(args.unit))
     policy = RetryPolicy(attempts=1) if args.no_retry else RetryPolicy()
     unit = RetryingUnit(counting, policy)
+    mask = frozenset() if args.show_serial else frozenset({"serial"})
     try:
+        inverter = SungrowInverter(unit)
         try:
-            probe = await SungrowInverter.async_probe(unit)
+            # One sweep: the poll also collects the raw words when asked.
+            report = await inverter.async_update(collect_raw=bool(args.raw))
         except UnsupportedModelError as err:
             print(f"Unsupported inverter: {err}", file=sys.stderr)
             return 2
+        except ModbusError as err:
+            print(f"Read failed: {err}", file=sys.stderr)
+            return 4
+        model = inverter.model
+        assert model is not None
         print(
-            f"{probe.model.name} (0x{probe.device_type_code:04X}), "
-            f"{probe.model.mppt} MPPT, nominal {probe.nominal_power_w} W, "
-            f"BDC {probe.bdc_rated_power_w} W, protocol {probe.protocol_version}"
+            f"{model.name} (0x{model.code:04X}), {model.mppt} MPPT, "
+            f"nominal {inverter.identity.nominal_power} W, "
+            f"BDC {inverter.battery_max_power_w} W, "
+            f"protocol {inverter.identity.protocol_version_text}"
         )
         print()
-
-        inverter = SungrowInverter(unit, model=probe.model)
-        report = await inverter.async_update()
-        for name in ("identity", "firmware", *inverter.polled_components):
+        for name in ("identity", "ratings", "firmware", *inverter.polled_components):
             component = getattr(inverter, name)
-            if component is None:
-                continue
-            print_component(component, title=name)
-            print()
-        raw = await inverter.async_read_raw() if args.raw else None
+            if component is not None:
+                print_block(component, name, mask=mask)
     finally:
         await conn.close()
 
     print(f"{counting.reads} Modbus reads, {unit.retries} retries")
-    for name, err in report.failed.items():
-        print(f"FAILED {name}: {err}")
-    if raw is not None and args.raw is not None:
+    for name, failure in report.failed.items():
+        print(f"FAILED {name}: {failure}")
+    if args.raw is not None:
+        raw: Raw = report.raw or {}
+        # The setup blocks were read before the poll; add them to the dump.
+        for name in ("identity", "ratings", "firmware"):
+            component = getattr(inverter, name)
+            if component is not None:
+                raw = _merge_setup_block(raw, component)
         if not args.keep_serial:
             scrub_serial(raw)
         args.raw.parent.mkdir(parents=True, exist_ok=True)
         args.raw.write_text(json.dumps(raw, indent=1) + "\n")
         print(f"raw dump written to {args.raw}")
     return 0 if report.ok else 3
+
+
+def _merge_setup_block(raw: Raw, component: Component) -> Raw:
+    """Re-encode a setup block's decoded values into the raw map.
+
+    Setup reads happen before the poll and are not repeated; the words are
+    rebuilt from the decoded fields, which is exact for these integer and
+    string registers.
+    """
+    for name, resolved in component.resolved_fields.items():
+        value = getattr(component, name)
+        if value is None or not isinstance(resolved.field, RegisterField):
+            continue
+        words = resolved.field.encode(value)
+        space = raw.setdefault(resolved.space, {})
+        for offset, word in enumerate(words):
+            space[resolved.address + offset] = word
+    return raw
 
 
 if __name__ == "__main__":

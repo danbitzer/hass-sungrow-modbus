@@ -21,13 +21,16 @@ def _encode_aa55(value: Any) -> int:
 def aa55(address: int, *, writable: bool = True) -> NumberField[bool]:
     """A Sungrow enable register: 0xAA reads True, 0x55 False, anything else None.
 
-    Writing takes a bool and puts the matching word on the wire.
+    0xFFFF (not implemented) and 0 (what a WiNet-S answers for a register it
+    does not forward) decode to None silently; any other word decodes to
+    None with a one-off warning. Writing takes a bool and puts the matching
+    word on the wire.
     """
     return NumberField(
         address,
         signed=False,
         convert=_AA55,
-        nan=U16_NAN,
+        nan=(U16_NAN, 0),
         writable=_encode_aa55 if writable else False,
     )
 

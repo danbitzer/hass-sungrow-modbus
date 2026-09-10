@@ -9,6 +9,7 @@ invented values. Add to the list deliberately, never with a real one.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -27,6 +28,11 @@ PRIVATE_ADDRESS = re.compile(
     r"|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0)(?![\d.])"
 )
 BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".lock"}
+
+# Where a raw register dump keeps the serial: input registers 4990-4999 in
+# Sungrow's numbering, ten words of two ASCII characters each.
+SERIAL_ADDRESS = 4989
+SERIAL_WORDS = 10
 
 
 def tracked_text_files() -> list[Path]:
@@ -66,3 +72,33 @@ def test_no_real_serial_numbers() -> None:
 
 def test_no_private_addresses() -> None:
     assert _hits(PRIVATE_ADDRESS, ALLOWED_ADDRESSES) == []
+
+
+def _fixture_serials() -> list[tuple[str, str]]:
+    """The serial each tracked JSON register dump carries, decoded from words."""
+    found: list[tuple[str, str]] = []
+    for path in tracked_text_files():
+        if path.suffix != ".json":
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            continue
+        inputs = data.get("input") if isinstance(data, dict) else None
+        if not isinstance(inputs, dict):
+            continue
+        words = [
+            int(inputs.get(str(SERIAL_ADDRESS + i), 0)) for i in range(SERIAL_WORDS)
+        ]
+        raw = b"".join(word.to_bytes(2, "big") for word in words)
+        serial = raw.decode("ascii", errors="replace").rstrip("\x00")
+        if serial:
+            found.append((str(path.relative_to(ROOT)), serial))
+    return found
+
+
+def test_register_dumps_carry_only_invented_serials() -> None:
+    """A serial stored as register words must be caught too, not just as text."""
+    dumps = _fixture_serials()
+    assert dumps, "expected at least one tracked register dump with a serial"
+    assert [d for d in dumps if d[1] not in INVENTED_SERIALS] == []

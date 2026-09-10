@@ -7,7 +7,7 @@ name = "sungrow-inverter"
 version = "0.1.0a1"
 description = "Read and control Sungrow SH-T hybrid inverters over Modbus, built on modbus-connection."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 license = { text = "MIT" }
 authors = [{ name = "Daniel Bitzer" }]
 keywords = ["modbus", "sungrow", "inverter", "battery", "home-assistant"]

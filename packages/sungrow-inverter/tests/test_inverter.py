@@ -11,7 +11,7 @@ from modbus_connection import (
 )
 from modbus_connection.mock import MockModbusUnit
 
-from sungrow_inverter import SungrowInverter, UnsupportedModelError, model_for
+from sungrow_inverter import SungrowInverter, UnsupportedModelError
 
 from .conftest import SERIAL, load_fixture, sh15t_holding, sh15t_input
 
@@ -26,7 +26,16 @@ async def test_probe_reads_identity_only(unit: MockModbusUnit) -> None:
     assert probe.protocol_version == "V1.1.15"
     assert probe.arm_version == "PEARL-H_B000.V000.P099"
     assert all(b.register_type == "input" for b in unit.read_events)
-    assert all(4951 <= b.address <= 5638 for b in unit.read_events)
+    assert all(
+        4951 <= b.address and b.address + b.count - 1 <= 5638 for b in unit.read_events
+    )
+
+
+async def test_probe_survives_a_refused_ratings_block(unit: MockModbusUnit) -> None:
+    unit.fail_read(5627, IllegalDataAddressError(), register_type="input")
+    probe = await SungrowInverter.async_probe(unit)
+    assert probe.model.name == "SH15T"
+    assert probe.bdc_rated_power_w is None
 
 
 async def test_probe_rejects_a_non_sht_inverter(unit: MockModbusUnit) -> None:
@@ -51,6 +60,7 @@ async def test_first_update_runs_setup(inverter: SungrowInverter) -> None:
         "flows",
         "grid_phases",
         "meter",
+        "meter_phases",
         "backup",
         "battery",
         "battery_power",
@@ -61,9 +71,11 @@ async def test_first_update_runs_setup(inverter: SungrowInverter) -> None:
     assert inverter.firmware.inverter_firmware == "PEARL-H_B000.V000.P099"
     assert inverter.battery.battery_level == 65.5
     assert inverter.battery_power.battery_power == -2500
-    # the slow components were probed at setup but are not on this list
+    # settings is not probed at setup and is not on the realtime list
     assert inverter.settings.ems_mode is None
-    assert inverter.alarms is not None
+    assert inverter.alarms is not None  # probed and kept
+    assert inverter.ratings is not None
+    assert inverter.ratings.battery_capacity == 44.8
 
 
 async def test_setup_rejects_a_non_sht_inverter(unit: MockModbusUnit) -> None:
@@ -74,10 +86,26 @@ async def test_setup_rejects_a_non_sht_inverter(unit: MockModbusUnit) -> None:
     assert inverter.is_setup is False
 
 
-async def test_setup_prefers_the_detected_model(unit: MockModbusUnit) -> None:
-    inverter = SungrowInverter(unit, model=model_for(0x0E20))  # configured SH5T
-    await inverter.async_update()
-    assert inverter.model is not None and inverter.model.name == "SH15T"
+async def test_refused_ratings_block_does_not_stop_setup(
+    unit: MockModbusUnit,
+) -> None:
+    unit.fail_read(5638, IllegalDataAddressError(), register_type="input")
+    inverter = SungrowInverter(unit)
+    report = await inverter.async_update()
+    assert report.ok and inverter.is_setup
+    assert inverter.ratings is None
+    assert inverter.battery_max_power_w is None
+    assert SungrowInverter(unit, battery_max_power_w=12000).battery_max_power_w == (
+        12000
+    )
+
+
+async def test_refused_identity_block_stops_setup(unit: MockModbusUnit) -> None:
+    unit.fail_read(4999, IllegalDataAddressError(), register_type="input")
+    inverter = SungrowInverter(unit)
+    with pytest.raises(IllegalDataAddressError):
+        await inverter.async_update()
+    assert inverter.is_setup is False
 
 
 async def test_setup_retries_after_an_unreachable_device(
@@ -117,14 +145,18 @@ async def test_refused_optional_components_are_dropped(
 ) -> None:
     unit.fail_read(13049, IllegalDataAddressError(), register_type="input")
     unit.fail_read(33148, IllegalDataAddressError())
+    unit.fail_read(5740, IllegalDataAddressError(), register_type="input")
     inverter = SungrowInverter(unit)
     report = await inverter.async_update()
     assert report.ok
     assert inverter.alarms is None
     assert inverter.start_power is None
+    assert inverter.meter_phases is None
     assert inverter.apl_shadow is not None
     assert "alarms" not in inverter.polled_components
     assert "start_power" not in inverter.polled_components
+    assert "meter_phases" not in inverter.polled_components
+    assert inverter.meter.meter_active_power == -1200  # documented block intact
 
 
 async def test_blank_firmware_strings_mean_no_firmware(
@@ -208,6 +240,47 @@ async def test_battery_max_power_defaults_to_bdc_rating(
     )
 
 
+async def test_setup_does_not_fire_listeners(
+    unit: MockModbusUnit, inverter: SungrowInverter
+) -> None:
+    fired: list[str] = []
+    inverter.identity.add_update_listener(lambda: fired.append("identity"))
+    inverter.alarms.add_update_listener(lambda: fired.append("alarms"))  # type: ignore[union-attr]
+    inverter.battery.add_update_listener(lambda: fired.append("battery"))
+    await inverter.async_update_realtime()
+    assert fired == ["battery"]
+
+
+async def test_refresh_times_are_recorded_per_component(
+    unit: MockModbusUnit, inverter: SungrowInverter
+) -> None:
+    assert inverter.last_refresh("settings") is None
+    report = await inverter.async_update_settings()
+    stamp = inverter.last_refresh("settings")
+    assert stamp is not None and stamp >= report.at
+    assert inverter.last_refresh("identity") is not None
+    assert inverter.last_refresh("ac_dc") is None  # not polled yet
+    unit.fail_read(13073, ServerDeviceFailureError())
+    await inverter.async_update_settings()
+    assert inverter.last_refresh("settings") == stamp  # a failed read keeps the old
+    assert inverter.last_refresh("battery_limits") != stamp
+
+
+async def test_collect_raw_fills_the_report_in_one_sweep(
+    unit: MockModbusUnit, inverter: SungrowInverter
+) -> None:
+    await inverter.async_update()
+    unit.read_events.clear()
+    report = await inverter.async_update(collect_raw=True)
+    assert report.ok and report.raw is not None
+    assert report.raw["input"][13022] == 655
+    assert report.raw["holding"][33046] == 1200
+    assert 4999 not in report.raw["input"]  # setup blocks are not re-read
+    assert len(unit.read_events) == 11 + 15
+    assert inverter.battery.battery_level == 65.5  # the fields refreshed too
+    assert (await inverter.async_update()).raw is None
+
+
 async def test_read_raw_covers_every_polled_register(
     inverter: SungrowInverter,
 ) -> None:
@@ -219,6 +292,17 @@ async def test_read_raw_covers_every_polled_register(
     assert raw["holding"][33046] == 1200
     assert list(raw["input"]) == sorted(raw["input"])
     assert 12999 not in raw["holding"]  # the control register is never read
+    assert raw["input"][5638] == 4480  # ratings block included
+
+
+async def test_read_raw_leaves_out_a_failing_component(
+    unit: MockModbusUnit, inverter: SungrowInverter
+) -> None:
+    await inverter.async_update()
+    unit.fail_read(5213, ServerDeviceFailureError(), register_type="input")
+    raw = await inverter.async_read_raw()
+    assert 5213 not in raw["input"]
+    assert raw["input"][13022] == 655
 
 
 async def test_raw_dump_replays_through_the_mock(
