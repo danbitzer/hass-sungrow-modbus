@@ -63,6 +63,9 @@ jobs:
   hacs:
     name: HACS validation
     runs-on: ubuntu-latest
+    # HACS validates through raw.githubusercontent.com, which 404s while the
+    # repository is private. Drop continue-on-error once the repo is public.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: hacs/action@main
