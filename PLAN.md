@@ -1,6 +1,6 @@
 # hass-sungrow-modbus — implementation plan
 
-Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards).
+Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library: enums, models, components, `SungrowInverter`, `RetryingUnit`, CLI; 117 tests against the mock). Next: M2 live read-only run.
 Repository is private for now, so the HACS validation job is advisory
 (`continue-on-error`) until it is made public.
 
