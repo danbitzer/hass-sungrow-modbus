@@ -630,10 +630,31 @@ class BatteryControl:
         # SELF_CONSUMPTION → hold (both fenced) / no_charge / no_discharge / self_consumption
         # EXTERNAL_EMS / VPP → external_ems / vpp;  ems_mode None → None
 ```
-`WriteReport.as_dict()` → `{"mode", "writes": [{component, field, previous,
-value}], "skipped": [...], "verified"}` — returned as the action response.
-`set_export_limit` warns when `feed_in_ratio` is neither `None` nor 100.0 (the
-spec says the ratio register 13088 takes precedence over the W value).
+`WriteReport.as_dict()` → `{"action", "writes": [{component, field, previous,
+value}], "skipped": [...], "uncertain": [...], "verified"}` — returned as the
+action response. Review-driven refinements (2026-09-11, after the live run):
+- Reversing a *running* forced mode writes STOP before the new power, so no
+  prefix forces the old direction at the new magnitude; leaving a forced
+  mode for `self_consumption` writes the EMS mode first (the safe direction)
+  and restores the limits after.
+- A fence step is satisfied by any value at or below the fence, so the 0 W
+  the Numbat blueprint left behind never churns.
+- The guard does not trust a self-consumption EMS word the running state
+  contradicts (the WiNet-S "0 for unserved" case): it writes it and lets the
+  read-back decide.
+- Verification re-reads every component the plan touched, written or not.
+- A write with no answer raises `WriteUncertainError` (the value may have
+  landed) rather than "rejected"; every `ControlError` after a write carries
+  the report; a validator refusal is `InvalidWriteValueError` with its
+  reason; `battery_max_power_w` must be a multiple of 10 W.
+- `set_export_limit(limit_w, *, enabled=True)` writes the feed-in ratio to
+  100 % when it would override the value, warns about an active power
+  limitation, bounds by the nominal power when the ratings are absent, and
+  `None` means "lift the limitation" — Numbat's uncurtail passes its DNSP
+  watts. `no_discharge` is requestable (mirror of `no_charge`).
+- `max_age_s` per call; `plan()` previews; `lock` is public so the settings
+  coordinator can hold it around its poll; the EMS-write grace is armed only
+  by an EMS write.
 
 ### 6.7a M3 live results (SH15T, 2026-09-11, actuator disabled, night)
 
@@ -800,7 +821,7 @@ async def _async_set_battery_mode(call: ServiceCall) -> ServiceResponse:
     if mode in (BatteryMode.FORCED_CHARGE, BatteryMode.FORCED_DISCHARGE) and "power_w" not in call.data:
         raise ServiceValidationError(translation_domain=DOMAIN, translation_key="power_required", ...)
     try:
-        report = await runtime.device.battery.apply(DesiredState(mode, call.data.get("power_w")), verify=call.data["verify"])
+        report = await runtime.device.battery_control.apply(DesiredState(mode, call.data.get("power_w")), verify=call.data["verify"])
     except PowerOutOfRangeError as err:
         raise ServiceValidationError(translation_domain=DOMAIN, translation_key="power_out_of_range", ...) from err
     except VerificationError as err:
@@ -903,8 +924,8 @@ Integration (`pytest-homeassistant-custom-component`; conftest patches
 | M1 | Library: enums, models, fields, components, `SungrowInverter`, `UpdateReport`, `RetryingUnit`, CLI | library tests green against the mock (spec-derived seeds); `query.py --help` runs without a backend |
 | M2 | Read-only live run: `query.py $SUNGROW_HOST` while the mkaiser YAML is still loaded; capture `--raw` into `tests/fixtures/sh15t_p063.json`; record which merged blocks the WiNet-S serves; widen the ranges. Also record: whether holding 13049/13050 are genuinely served (a WiNet-S answers 0 for an unserved register, and 0 is a valid EMS mode — the M3 write guard must not trust a 0 it cannot distinguish; cross-check `ems_mode` against `running_state` COMPULSORY/EXTERNAL_EMS); whether the undocumented 13014–13015 hole inside the `Energy` block reads; whether `MeterPhases` (5740–5745) and `Ratings` answer | values match the mkaiser entities in HA at the same moment (battery_level, load_power, total_dc_power, battery_power sign, settings); no exception-4 storms with retries on; fixture replays green |
 | M3 | `BatteryControl` + control tests; CLI `--apply` (guarded) | with the Numbat actuator **disabled**: `apply(self_consumption)` = zero writes; `no_charge` → HA shows max charge power 10; `self_consumption` restores 12000; `forced_charge 2000` for 2 min then back; `set_export_limit 0/12000`; `set_pv_limitation true/false` (13018 verified live); iSolarCloud/HA numbers agree; note whether raw 0 is accepted on 33047 |
-| M4 | Integration: config flow, coordinators, sensor/binary_sensor, diagnostics, strings; publish `lib-v0.1.0a1`; install on Dan's HA | config flow rejects a fake non-SHT code in tests; on the real HA both mkaiser and `sungrow` entities coexist briefly and match; diagnostics download works |
-| M5 | number/select/switch/button + actions + `sensor.battery_mode`; integration tests for actions | Developer Tools calls with the actuator disabled; response shows writes/skipped/verified; `sensor.battery_mode` tracks; repeat calls are write-free |
+| M4 | Integration: config flow, coordinators (the settings coordinator polls under `battery_control.lock`; message spacing option minimum 10 ms, never 0), sensor/binary_sensor, diagnostics, strings; publish `lib-v0.1.0a1`; install on Dan's HA | config flow rejects a fake non-SHT code in tests; on the real HA both mkaiser and `sungrow` entities coexist briefly and match; diagnostics download works |
+| M5 | number/select/switch/button + actions + `sensor.battery_mode`; `stop_inverter` applies `self_consumption` first (the EMS mode survives a shutdown, so a later start would resume a forced mode with a stale setpoint); actions pass the coordinator's freshness as `max_age_s`; the select offers the six requestable modes, the sensor may show the others; integration tests for actions | Developer Tools calls with the actuator disabled; response shows writes/skipped/verified; `sensor.battery_mode` tracks; repeat calls are write-free |
 | M6 | Cutover + release 0.1.0, in this order: (1) remove the mkaiser modbus YAML and restart; (2) delete the orphaned legacy registry entries for the ids to be reused (`sensor.battery_level`, `sensor.battery_power`, `sensor.load_power`, the numbers/selects Numbat's dashboard references) so each id is free in the registry *and* the state machine; (3) add the `sungrow` integration; (4) **immediately** rename the new entities onto the legacy ids — before their first long-term-statistics compile, so the rename has nothing to migrate and the legacy statistics rows simply continue; (5) switch Numbat to the new blueprint. Later nicety: a "legacy entity ids" option that claims the ids at creation (mkaiser's adoption pattern) so step 4 disappears | `sensor.numbat_status` stays `ok`; each renamed entity's unit and `state_class` equal the legacy entry's; statistics graphs continuous across the switch; one full charge → discharge → idle → hold cycle traced in the automation |
 
 ## 10. Risks and mitigations

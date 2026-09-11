@@ -5,20 +5,27 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from modbus_connection import IllegalDataValueError, ServerDeviceFailureError
+from modbus_connection import (
+    IllegalDataValueError,
+    ModbusTimeoutError,
+    ServerDeviceFailureError,
+)
 from modbus_connection.mock import MockModbusUnit, WriteEvent
 
 from sungrow_inverter import (
+    DESIRED_BATTERY_MODES,
     BatteryControl,
     BatteryMode,
     ChargeCommand,
     DesiredState,
     EmsMode,
+    InvalidWriteValueError,
     PowerOutOfRangeError,
     SettingsUnavailableError,
     SungrowInverter,
     VerificationError,
     WriteRejectedError,
+    WriteUncertainError,
 )
 from sungrow_inverter.control import same_on_wire
 
@@ -79,6 +86,7 @@ async def test_self_consumption_when_already_there_writes_nothing(
         "action": "self_consumption",
         "writes": [],
         "skipped": report.skipped,
+        "uncertain": [],
         "verified": False,
     }
 
@@ -239,6 +247,7 @@ async def test_rejected_write_keeps_the_earlier_ones(
         await inv.battery_control.apply(DesiredState(BatteryMode.HOLD))
     assert info.value.field == "battery_limits.max_discharge_power"
     assert addresses(writes) == [(33046, 1)]  # the charge fence stands
+    assert info.value.report is not None
     assert [w.field for w in info.value.report.writes] == ["max_charge_power"]
     assert info.value.report.verified is False
     assert unit.holding[13049] == 0  # the mode register was never reached
@@ -260,6 +269,7 @@ async def test_verification_failure_names_the_field(
     assert info.value.expected is EmsMode.COMPULSORY
     assert info.value.actual is EmsMode.SELF_CONSUMPTION
     assert sleeps.delays == [0.5]
+    assert info.value.report is not None
     assert [w.field for w in info.value.report.writes] == [
         "forced_power",
         "charge_command",
@@ -278,11 +288,12 @@ async def test_verify_can_be_skipped(
     assert unit.read_events == []
 
 
-async def test_verify_refreshes_only_the_touched_components(
+async def test_verify_re_reads_every_touched_component(
     inv: SungrowInverter, unit: MockModbusUnit
 ) -> None:
     await inv.battery_control.apply(DesiredState(BatteryMode.HOLD))
-    assert [e.address for e in unit.read_events] == [33046]  # not settings
+    # every component the plan touched is re-read, written or skipped
+    assert [e.address for e in unit.read_events] == [33046, 13017]
     unit.read_events.clear()
     await inv.battery_control.apply(
         DesiredState(BatteryMode.FORCED_CHARGE, power_w=500)
@@ -329,13 +340,50 @@ async def test_export_limit_is_bounded_by_the_ratings(
     assert writes == []
 
 
-async def test_export_limit_warns_when_the_ratio_overrides_it(
+async def test_export_limit_raises_a_ratio_that_would_override_it(
+    inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
+) -> None:
+    unit.holding[13087] = 500  # 50.0 %: the ratio register takes precedence
+    await inv.async_refresh("settings")
+    report = await inv.battery_control.set_export_limit(3000)
+    assert addresses(writes) == [(13073, 3000), (13087, 1000), (13086, 0xAA)]
+    assert report.verified and inv.settings.feed_in_ratio == 100.0
+
+
+async def test_export_limit_warns_about_an_active_power_limit(
     inv: SungrowInverter, unit: MockModbusUnit, caplog: pytest.LogCaptureFixture
 ) -> None:
-    unit.holding[13087] = 500  # 50.0 %
+    unit.holding[13088] = 0xAA
+    unit.holding[13089] = 300  # 30.0 %
     await inv.async_refresh("settings")
     await inv.battery_control.set_export_limit(3000)
-    assert "50.0 %" in caplog.text and "overrides" in caplog.text
+    assert "active power limitation" in caplog.text and "30.0 %" in caplog.text
+
+
+async def test_export_limit_can_write_the_value_then_disable(
+    inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
+) -> None:
+    unit.holding[13086] = 0xAA  # currently enabled
+    await inv.async_refresh("settings")
+    await inv.battery_control.set_export_limit(12000, enabled=False)
+    assert addresses(writes) == [(13073, 12000), (13086, 0x55)]
+    assert inv.settings.export_limit == 12000
+    assert inv.settings.export_limit_enabled is False
+
+
+async def test_export_bounds_fall_back_to_the_nominal_power(
+    unit: MockModbusUnit, sleeps: Sleeps, writes: list[WriteEvent]
+) -> None:
+    from modbus_connection import IllegalDataAddressError
+
+    unit.fail_read(5627, IllegalDataAddressError(), register_type="input")
+    inverter = SungrowInverter(unit, battery_max_power_w=12000)
+    inverter.battery_control = BatteryControl(inverter, sleep=sleeps)
+    await inverter.async_update()
+    assert inverter.ratings is None
+    with pytest.raises(PowerOutOfRangeError, match="0..15000"):
+        await inverter.battery_control.set_export_limit(60000)
+    assert writes == []
 
 
 async def test_set_pv_limitation(
@@ -413,6 +461,16 @@ async def test_self_consumption_is_doubted_when_the_running_state_disagrees(
     assert "may not be served" in caplog.text
 
 
+async def test_grace_is_armed_only_by_an_ems_write(
+    inv: SungrowInverter, unit: MockModbusUnit
+) -> None:
+    unit.input[12999] = 0x0800
+    await inv.async_update_realtime()
+    assert mode(inv) is BatteryMode.UNKNOWN
+    await inv.battery_control.set_pv_limitation(True)  # not an EMS write
+    assert mode(inv) is BatteryMode.UNKNOWN
+
+
 async def test_running_state_lag_after_our_own_write_is_tolerated(
     inv: SungrowInverter, unit: MockModbusUnit
 ) -> None:
@@ -425,5 +483,277 @@ async def test_running_state_lag_after_our_own_write_is_tolerated(
     await inv.battery_control.apply(DesiredState(BatteryMode.SELF_CONSUMPTION))
     await inv.async_update_realtime()  # running state still lags
     assert mode(inv) is BatteryMode.SELF_CONSUMPTION
-    inv.battery_control._last_write_at -= 120  # type: ignore[operator]
+    inv.battery_control._ems_written_at -= 120  # type: ignore[operator]
     assert mode(inv) is BatteryMode.UNKNOWN  # the lag has outlived the grace
+
+
+# -- review fixes: direction flips, doubted EMS word, failure prefixes ---------
+
+
+async def test_reversing_a_live_forced_mode_stops_it_before_the_new_power(
+    inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
+) -> None:
+    await inv.battery_control.apply(
+        DesiredState(BatteryMode.FORCED_CHARGE, power_w=2000)
+    )
+    writes.clear()
+    await inv.battery_control.apply(
+        DesiredState(BatteryMode.FORCED_DISCHARGE, power_w=5000)
+    )
+    # STOP first, so no prefix charges at the discharge setpoint
+    assert addresses(writes) == [(13050, 0xCC), (13051, 5000), (13050, 0xBB)]
+    writes.clear()
+    # same direction, new magnitude: only the power register
+    await inv.battery_control.apply(
+        DesiredState(BatteryMode.FORCED_DISCHARGE, power_w=3000)
+    )
+    assert addresses(writes) == [(13051, 3000)]
+
+
+async def test_failed_direction_write_never_forces_the_old_direction(
+    inv: SungrowInverter, unit: MockModbusUnit
+) -> None:
+    await inv.battery_control.apply(
+        DesiredState(BatteryMode.FORCED_CHARGE, power_w=2000)
+    )
+    count = 0
+
+    def fail_second_command(event: WriteEvent) -> None:
+        nonlocal count
+        if event.address == 13050:
+            count += 1
+            if count == 1:  # the STOP has landed; refuse the DISCHARGE
+                unit.fail_write(13050, IllegalDataValueError())
+
+    unit.on_write(fail_second_command)
+    with pytest.raises(WriteRejectedError) as info:
+        await inv.battery_control.apply(
+            DesiredState(BatteryMode.FORCED_DISCHARGE, power_w=5000)
+        )
+    assert info.value.field == "settings.charge_command"
+    assert unit.holding[13050] == 0xCC  # stopped, not charging at 5000
+    assert unit.holding[13051] == 5000
+    await inv.async_refresh("settings")
+    assert mode(inv) is BatteryMode.FORCED_STOP
+
+
+async def test_leaving_a_forced_mode_writes_the_ems_mode_first(
+    inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
+) -> None:
+    unit.holding[13049] = 2
+    unit.holding[13050] = 0xAA
+    unit.holding[33046] = 1  # a fence left behind
+    await inv.async_refresh("settings", "battery_limits")
+    unit.fail_write(33046, IllegalDataValueError())
+    with pytest.raises(WriteRejectedError):
+        await inv.battery_control.apply(DesiredState(BatteryMode.SELF_CONSUMPTION))
+    assert addresses(writes) == [(13049, 0)]  # left compulsory before restoring
+    assert unit.holding[33046] == 1  # a failure leaves it fenced, never forced
+
+
+@pytest.mark.parametrize(
+    ("desired", "failing", "expect"),
+    [
+        # hold: a failure never leaves an unfenced window
+        (DesiredState(BatteryMode.HOLD), 33046, {33046: 1200, 33047: 1200}),
+        (DesiredState(BatteryMode.HOLD), 33047, {33046: 1, 33047: 1200}),
+        # no_charge from a hold-like state: discharge restored first
+        (DesiredState(BatteryMode.NO_CHARGE), 33046, {33046: 1200, 33047: 1200}),
+        # forced charge from self-consumption: mode never reached
+        (DesiredState(BatteryMode.FORCED_CHARGE, 1000), 13051, {13049: 0}),
+        (DesiredState(BatteryMode.FORCED_CHARGE, 1000), 13050, {13049: 0, 13051: 1000}),
+        (DesiredState(BatteryMode.FORCED_CHARGE, 1000), 13049, {13049: 0, 13050: 0xAA}),
+    ],
+)
+async def test_every_failure_prefix_leaves_a_sane_state(
+    inv: SungrowInverter,
+    unit: MockModbusUnit,
+    desired: DesiredState,
+    failing: int,
+    expect: dict[int, int],
+) -> None:
+    unit.fail_write(failing, IllegalDataValueError())
+    with pytest.raises(WriteRejectedError):
+        await inv.battery_control.apply(desired)
+    for address, value in expect.items():
+        assert unit.holding[address] == value, address
+
+
+async def test_a_doubted_ems_word_is_written_regardless(
+    inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
+) -> None:
+    """The dongle says EMS 0 but the inverter runs in compulsory mode."""
+    unit.input[12999] = 0x0800
+    await inv.async_update_realtime()
+    assert mode(inv) is BatteryMode.UNKNOWN
+    planned = inv.battery_control.plan(DesiredState(BatteryMode.SELF_CONSUMPTION))
+    assert [(p.field, p.skip) for p in planned] == [
+        ("max_charge_power", True),
+        ("max_discharge_power", True),
+        ("ems_mode", False),
+    ]
+    report = await inv.battery_control.apply(DesiredState(BatteryMode.SELF_CONSUMPTION))
+    assert addresses(writes) == [(13049, 0)]
+    assert report.verified
+
+
+async def test_unanswered_write_is_reported_as_uncertain(
+    inv: SungrowInverter, unit: MockModbusUnit
+) -> None:
+    unit.fail_write(33047, ModbusTimeoutError())
+    with pytest.raises(WriteUncertainError) as info:
+        await inv.battery_control.apply(DesiredState(BatteryMode.HOLD))
+    report = info.value.report
+    assert report is not None
+    assert [w.field for w in report.writes] == ["max_charge_power"]
+    assert report.uncertain == ["battery_limits.max_discharge_power"]
+    assert report.as_dict()["uncertain"] == report.uncertain
+
+
+async def test_failed_read_back_still_hands_over_the_report(
+    inv: SungrowInverter, unit: MockModbusUnit
+) -> None:
+    unit.fail_read(33046, ServerDeviceFailureError())
+    with pytest.raises(SettingsUnavailableError) as info:
+        await inv.battery_control.apply(DesiredState(BatteryMode.HOLD))
+    assert info.value.report is not None
+    assert [w.field for w in info.value.report.writes] == [
+        "max_charge_power",
+        "max_discharge_power",
+    ]
+    assert unit.holding[33046] == 1 and unit.holding[33047] == 1
+
+
+async def test_unreadable_freshness_read_is_a_control_error(
+    inv: SungrowInverter, unit: MockModbusUnit
+) -> None:
+    inv._refreshed["settings"] -= 60
+    unit.fail_read(13017, ModbusTimeoutError())
+    with pytest.raises(SettingsUnavailableError):
+        await inv.battery_control.apply(DesiredState(BatteryMode.HOLD))
+
+
+async def test_max_power_must_be_a_multiple_of_ten(
+    unit: MockModbusUnit, sleeps: Sleeps, writes: list[WriteEvent]
+) -> None:
+    inverter = SungrowInverter(unit, battery_max_power_w=9999)
+    inverter.battery_control = BatteryControl(inverter, sleep=sleeps)
+    await inverter.async_update()
+    with pytest.raises(PowerOutOfRangeError, match="multiple of 10"):
+        await inverter.battery_control.apply(DesiredState(BatteryMode.HOLD))
+    assert writes == []
+
+
+async def test_validator_rejections_keep_their_reason(
+    inv: SungrowInverter, unit: MockModbusUnit
+) -> None:
+    inv._battery_max_power_w = 10 * 0xFFFF + 10  # past what the register holds
+    with pytest.raises(PowerOutOfRangeError):
+        await inv.battery_control.apply(DesiredState(BatteryMode.SELF_CONSUMPTION))
+    steps = inv.battery_control._plan  # noqa: F841 - planning is where it fails
+    inv._battery_max_power_w = 12000
+    from sungrow_inverter.control import _Step
+
+    with pytest.raises(InvalidWriteValueError, match="bool"):
+        await inv.battery_control._execute(
+            "x", [_Step("settings", "pv_power_limitation", 0xAA)], verify=False
+        )
+
+
+async def test_hold_is_write_free_against_zero_fences(
+    inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
+) -> None:
+    """Numbat's blueprint wrote 0 W for months; 0 satisfies a 10 W fence."""
+    unit.holding[33046] = 0
+    unit.holding[33047] = 0
+    await inv.async_refresh("battery_limits")
+    assert mode(inv) is BatteryMode.HOLD
+    report = await inv.battery_control.apply(DesiredState(BatteryMode.HOLD))
+    assert writes == [] and report.writes == []
+    await inv.battery_control.apply(DesiredState(BatteryMode.NO_CHARGE))
+    assert addresses(writes) == [(33047, 1200)]  # only the discharge restore
+
+
+async def test_no_discharge_mirrors_no_charge(
+    inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
+) -> None:
+    await inv.battery_control.apply(DesiredState(BatteryMode.NO_DISCHARGE))
+    assert addresses(writes) == [(33047, 1)]
+    assert mode(inv) is BatteryMode.NO_DISCHARGE
+
+
+def test_every_desired_plan_ends_with_the_ems_mode_unless_leaving_forced(
+    inv: SungrowInverter,
+) -> None:
+    for desired_mode in DESIRED_BATTERY_MODES:
+        steps = inv.battery_control._plan(DesiredState(desired_mode, power_w=1000))
+        assert steps[-1].field == "ems_mode", desired_mode
+
+
+async def test_apply_only_ever_writes_holding_settings_registers(
+    inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
+) -> None:
+    control = inv.battery_control
+    for desired in (
+        DesiredState(BatteryMode.HOLD),
+        DesiredState(BatteryMode.FORCED_CHARGE, 100),
+        DesiredState(BatteryMode.FORCED_DISCHARGE, 100),
+        DesiredState(BatteryMode.NO_CHARGE),
+        DesiredState(BatteryMode.NO_DISCHARGE),
+        DesiredState(BatteryMode.SELF_CONSUMPTION),
+    ):
+        await control.apply(desired)
+    await control.set_export_limit(100)
+    await control.set_export_limit(None)
+    await control.set_pv_limitation(True)
+    assert writes
+    assert all(w.register_type == "holding" for w in writes)
+    assert all(
+        13017 <= w.address <= 13099 or 33046 <= w.address <= 33047 for w in writes
+    )
+    assert 12999 not in {w.address for w in writes}
+
+
+async def test_apply_survives_a_concurrent_settings_poll(
+    inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
+) -> None:
+    async def poll() -> None:
+        for _ in range(20):
+            await inv.async_update_settings()
+
+    await asyncio.gather(
+        inv.battery_control.apply(DesiredState(BatteryMode.FORCED_CHARGE, 3000)),
+        poll(),
+    )
+    assert addresses(writes) == [(13051, 3000), (13050, 0xAA), (13049, 2)]
+    assert mode(inv) is BatteryMode.FORCED_CHARGE
+
+
+async def test_running_state_not_yet_polled_believes_the_settings(
+    unit: MockModbusUnit, sleeps: Sleeps
+) -> None:
+    inverter = SungrowInverter(unit, battery_max_power_w=12000)
+    inverter.battery_control = BatteryControl(inverter, sleep=sleeps)
+    await inverter.async_update_settings()  # settings only; flows never read
+    assert inverter.flows.running_state is None
+    assert inverter.effective_battery_mode is BatteryMode.SELF_CONSUMPTION
+
+
+async def test_per_call_max_age_skips_the_freshness_read(
+    inv: SungrowInverter, unit: MockModbusUnit
+) -> None:
+    inv._refreshed["settings"] -= 60
+    inv._refreshed["battery_limits"] -= 60
+    await inv.battery_control.apply(
+        DesiredState(BatteryMode.SELF_CONSUMPTION), max_age_s=3600
+    )
+    assert unit.read_events == []
+
+
+async def test_stop_and_start_record_the_running_state(
+    inv: SungrowInverter, caplog: pytest.LogCaptureFixture
+) -> None:
+    report = await inv.battery_control.stop()
+    assert report.writes[0].previous is inv.flows.running_state
+    assert "STOP" in caplog.text
+    assert inv.battery_control.lock.locked() is False

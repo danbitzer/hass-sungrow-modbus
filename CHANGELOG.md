@@ -8,6 +8,14 @@
   leaves a sane state if one fails, read back and compared afterwards;
   `effective_mode()` reports what the settings imply; `scripts/control.py`
   drives it (plan-only without `--yes`). Verified live on an SH15T.
+- M3 review fixes: reversing a running forced mode stops it before the new
+  power; leaving a forced mode writes the EMS mode first; a doubted EMS word
+  is written rather than skipped; fences accept any value at or below them;
+  read-back re-reads every touched component; unanswered writes are
+  `WriteUncertainError`; every control error after a write carries the
+  report; `set_export_limit` raises an overriding feed-in ratio to 100 %,
+  warns about an active power limitation and takes `enabled=`;
+  `no_discharge` is requestable; `plan()` previews; per-call `max_age_s`.
 - M2: live read-only run on an SH15T (firmware P063, WiNet-S V300) — every
   value matched the mkaiser entities; readable ranges widened to the blocks
   the dongle proved it serves (a full sweep is now 24 reads instead of 36);

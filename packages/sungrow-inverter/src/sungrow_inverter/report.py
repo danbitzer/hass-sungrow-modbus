@@ -56,7 +56,11 @@ class WriteReport:
     writes: list[WriteRecord] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     """``component.field`` targets already at their value."""
+    uncertain: list[str] = field(default_factory=list)
+    """Targets whose write got no answer: the value may have landed."""
     verified: bool = False
+    at: float = field(default_factory=time.monotonic)
+    """``time.monotonic()`` when the call started."""
 
     def as_dict(self) -> dict[str, Any]:
         """A JSON-safe rendering, the shape a service response returns."""
@@ -64,6 +68,7 @@ class WriteReport:
             "action": self.action,
             "writes": [w.as_dict() for w in self.writes],
             "skipped": list(self.skipped),
+            "uncertain": list(self.uncertain),
             "verified": self.verified,
         }
 

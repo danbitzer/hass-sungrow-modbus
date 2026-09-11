@@ -3,7 +3,7 @@
     uv run --package sungrow-inverter python \\
         packages/sungrow-inverter/scripts/control.py "$SUNGROW_HOST" \\
         --battery-max-power 10000 --yes \\
-        apply self_consumption | apply no_charge | apply hold \\
+        apply self_consumption | apply no_charge | apply no_discharge | apply hold \\
         | apply forced_charge --power 2000 | apply forced_discharge --power 1000 \\
         | export-limit 0 | export-limit off | pv-limit on | pv-limit off \\
         | status
@@ -32,13 +32,21 @@ from sungrow_inverter import (
     BatteryMode,
     ControlError,
     DesiredState,
+    PlannedWrite,
     RetryingUnit,
     SungrowInverter,
     UnsupportedModelError,
 )
-from sungrow_inverter.control import same_on_wire
 
 CONNECTIONS = (("tcp", "socket"),)
+MODES = [
+    "self_consumption",
+    "no_charge",
+    "no_discharge",
+    "hold",
+    "forced_charge",
+    "forced_discharge",
+]
 
 
 def _parse() -> argparse.Namespace:
@@ -53,7 +61,8 @@ def _parse() -> argparse.Namespace:
         "--battery-max-power",
         type=int,
         metavar="W",
-        help="the limit self_consumption restores (default: min(nominal, BDC))",
+        help="the limit self_consumption restores; required for apply (the "
+        "inverter's own rating may exceed what you run the battery at)",
     )
     parser.add_argument(
         "--yes", action="store_true", help="actually write; otherwise plan only"
@@ -63,23 +72,17 @@ def _parse() -> argparse.Namespace:
     )
     sub = parser.add_subparsers(dest="command", required=True)
     apply = sub.add_parser("apply", help="battery mode")
-    apply.add_argument(
-        "mode",
-        choices=[
-            "self_consumption",
-            "no_charge",
-            "hold",
-            "forced_charge",
-            "forced_discharge",
-        ],
-    )
+    apply.add_argument("mode", choices=MODES)
     apply.add_argument("--power", type=int, metavar="W", help="forced_* setpoint")
     export = sub.add_parser("export-limit", help="feed-in limitation")
     export.add_argument("limit", help="watts, or 'off'")
     pv = sub.add_parser("pv-limit", help="PV power limitation (reg 13018)")
     pv.add_argument("state", choices=["on", "off"])
     sub.add_parser("status", help="print the settings and the effective mode")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.command == "apply" and args.battery_max_power is None:
+        parser.error("apply needs --battery-max-power (the restore target)")
+    return args
 
 
 def _name(value: object) -> str:
@@ -97,8 +100,8 @@ def _print_settings(inverter: SungrowInverter) -> None:
         f"max_discharge={lim.max_discharge_power} W"
     )
     print(
-        f"  export_limit={s.export_limit} W (enabled={s.export_limit_enabled}) "
-        f"pv_limitation={s.pv_power_limitation}"
+        f"  export_limit={s.export_limit} W (enabled={s.export_limit_enabled}, "
+        f"ratio={s.feed_in_ratio} %) pv_limitation={s.pv_power_limitation}"
     )
     print(
         f"  running_state={_name(inverter.flows.running_state)} "
@@ -108,13 +111,13 @@ def _print_settings(inverter: SungrowInverter) -> None:
     print(f"  effective mode: {inverter.effective_battery_mode}")
 
 
-def _plan_only(inverter: SungrowInverter, steps: list[tuple[str, str, object]]) -> None:
+def _print_plan(planned: list[PlannedWrite]) -> None:
     print("plan (not written; pass --yes):")
-    for component, field, target in steps:
-        current = getattr(getattr(inverter, component), field)
-        same = same_on_wire(getattr(inverter, component), field, current, target)
-        note = "  (skip)" if same else ""
-        print(f"  {component}.{field}: {current!r} -> {target!r}{note}")
+    for item in planned:
+        d = item.as_dict()
+        note = "  (skip)" if d["skip"] else ""
+        label = f"{d['component']}.{d['field']}"
+        print(f"  {label}: {d['current']!r} -> {d['target']!r}{note}")
 
 
 async def main() -> int:
@@ -133,6 +136,9 @@ async def main() -> int:
         except UnsupportedModelError as err:
             print(f"Unsupported inverter: {err}", file=sys.stderr)
             return 2
+        except ModbusError as err:
+            print(f"Read failed: {err}", file=sys.stderr)
+            return 5
         if not report.ok:
             print(f"read failed for: {', '.join(report.failed)}", file=sys.stderr)
             return 3
@@ -144,37 +150,46 @@ async def main() -> int:
         if args.command == "status":
             return 0
 
-        if args.command == "apply":
-            desired = DesiredState(BatteryMode(args.mode), power_w=args.power)
-            if not args.yes:
-                steps = [
-                    (s.component, s.field, s.target) for s in control._plan(desired)
-                ]
-                _plan_only(inverter, steps)
-                return 0
-            coro = control.apply(desired, verify=verify)
-        elif args.command == "export-limit":
-            limit = None if args.limit == "off" else int(args.limit)
-            if not args.yes:
-                print(f"would set export limit to {limit!r}; pass --yes")
-                return 0
-            coro = control.set_export_limit(limit, verify=verify)
-        else:
-            if not args.yes:
-                print(f"would set pv limitation {args.state}; pass --yes")
-                return 0
-            coro = control.set_pv_limitation(args.state == "on", verify=verify)
-
         try:
-            result = await coro
+            if args.command == "apply":
+                desired = DesiredState(BatteryMode(args.mode), power_w=args.power)
+                if not args.yes:
+                    _print_plan(control.plan(desired))
+                    return 0
+                result = await control.apply(desired, verify=verify)
+            elif args.command == "export-limit":
+                limit = None if args.limit == "off" else int(args.limit)
+                if not args.yes:
+                    s = inverter.settings
+                    print(
+                        f"would set export limit to {limit!r} (now {s.export_limit} W, "
+                        f"enabled={s.export_limit_enabled}, "
+                        f"ratio={s.feed_in_ratio} %); pass --yes"
+                    )
+                    return 0
+                result = await control.set_export_limit(limit, verify=verify)
+            else:
+                if not args.yes:
+                    print(
+                        f"would set pv limitation {args.state} "
+                        f"(now {inverter.settings.pv_power_limitation}); pass --yes"
+                    )
+                    return 0
+                result = await control.set_pv_limitation(
+                    args.state == "on", verify=verify
+                )
         except ControlError as err:
             print(f"FAILED: {err}", file=sys.stderr)
-            report_attr = getattr(err, "report", None)
-            if report_attr is not None:
-                print(json.dumps(report_attr.as_dict(), indent=1), file=sys.stderr)
+            if err.report is not None:
+                print(json.dumps(err.report.as_dict(), indent=1), file=sys.stderr)
             return 4
+        except ModbusError as err:
+            print(f"Modbus error: {err}", file=sys.stderr)
+            return 5
         print("result:")
         print(json.dumps(result.as_dict(), indent=1))
+        # Fresh settings even with --no-verify or an all-skipped call.
+        await inverter.async_refresh("settings", "battery_limits")
         await inverter.async_update_realtime()
         print("after:")
         _print_settings(inverter)

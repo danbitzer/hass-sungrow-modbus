@@ -144,7 +144,7 @@ class OutputType(IntEnum):
 class BatteryMode(StrEnum):
     """The battery behaviour a caller asks for, or the one the settings imply.
 
-    The first five can be requested; the rest are only ever reported by
+    The first six can be requested; the rest are only ever reported by
     ``effective_mode`` for settings this library does not write itself.
     """
 
@@ -152,10 +152,10 @@ class BatteryMode(StrEnum):
     FORCED_CHARGE = "forced_charge"
     FORCED_DISCHARGE = "forced_discharge"
     NO_CHARGE = "no_charge"
+    NO_DISCHARGE = "no_discharge"
     HOLD = "hold"
     # effective-only
     FORCED_STOP = "forced_stop"
-    NO_DISCHARGE = "no_discharge"
     EXTERNAL_EMS = "external_ems"
     VPP = "vpp"
     UNKNOWN = "unknown"
@@ -167,6 +167,7 @@ DESIRED_BATTERY_MODES: frozenset[BatteryMode] = frozenset(
         BatteryMode.FORCED_CHARGE,
         BatteryMode.FORCED_DISCHARGE,
         BatteryMode.NO_CHARGE,
+        BatteryMode.NO_DISCHARGE,
         BatteryMode.HOLD,
     }
 )

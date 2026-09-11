@@ -28,7 +28,14 @@ class UnsupportedModelError(SungrowError):
 
 
 class ControlError(SungrowError):
-    """Base class for errors from the guarded write layer."""
+    """Base class for errors from the guarded write layer.
+
+    ``report`` carries the writes made before the error, when any were.
+    """
+
+    def __init__(self, message: str, report: WriteReport | None = None) -> None:
+        self.report = report
+        super().__init__(message)
 
 
 class PowerOutOfRangeError(ControlError, ValueError):
@@ -39,8 +46,18 @@ class PowerOutOfRangeError(ControlError, ValueError):
         super().__init__(f"{what} {value!r} is outside {low}..{high} W")
 
 
+class InvalidWriteValueError(ControlError, ValueError):
+    """A field's validator refused the value a plan produced."""
+
+    def __init__(
+        self, field: str, value: Any, reason: str, report: WriteReport | None = None
+    ) -> None:
+        self.field, self.value, self.reason = field, value, reason
+        super().__init__(f"{field}: {reason}", report)
+
+
 class SettingsUnavailableError(ControlError):
-    """The settings a write depends on could not be read."""
+    """The settings a write depends on, or its read-back, could not be read."""
 
 
 class WriteRejectedError(ControlError):
@@ -49,8 +66,20 @@ class WriteRejectedError(ControlError):
     def __init__(self, field: str, cause: ModbusError, report: WriteReport) -> None:
         self.field = field
         self.cause = cause
-        self.report = report
-        super().__init__(f"write of {field} rejected: {cause}")
+        super().__init__(f"write of {field} rejected: {cause}", report)
+
+
+class WriteUncertainError(ControlError):
+    """A write got no answer; the value may or may not have landed.
+
+    The writes before it stand; ``report.uncertain`` names this one. A
+    read of that register settles it once the link answers again.
+    """
+
+    def __init__(self, field: str, cause: ModbusError, report: WriteReport) -> None:
+        self.field = field
+        self.cause = cause
+        super().__init__(f"write of {field} unanswered: {cause}", report)
 
 
 class VerificationError(ControlError):
@@ -62,5 +91,4 @@ class VerificationError(ControlError):
         self.field = field
         self.expected = expected
         self.actual = actual
-        self.report = report
-        super().__init__(f"{field} reads {actual!r} after writing {expected!r}")
+        super().__init__(f"{field} reads {actual!r} after writing {expected!r}", report)
