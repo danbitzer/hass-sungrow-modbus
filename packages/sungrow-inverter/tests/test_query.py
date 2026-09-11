@@ -68,9 +68,9 @@ def test_tcp_defaults_to_socket_framing(query: ModuleType) -> None:
     # connect_tcp default applies, which must be socket framing.
     import inspect
 
-    from modbus_connection import tmodbus
-
     assert args.framer in (None, "socket")
+    # The backend is only installed with the `cli` extra.
+    tmodbus = pytest.importorskip("modbus_connection.tmodbus")
     assert inspect.signature(tmodbus.connect_tcp).parameters["framer"].default == (
         "socket"
     )
