@@ -1,3 +1,452 @@
 {
-  "title": "Sungrow SH-T Hybrid Inverter"
+  "title": "Sungrow SH-T Hybrid Inverter",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to the inverter",
+        "description": "The WiNet-S dongle or LAN port speaks Modbus TCP. The inverter must be an SH-T model (SH5T to SH25T).",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "unit_id": "Unit id"
+        },
+        "data_description": {
+          "host": "IP address or hostname of the WiNet-S dongle.",
+          "port": "Modbus TCP port, normally 502.",
+          "unit_id": "Modbus unit (slave) id, normally 1."
+        }
+      },
+      "reconfigure": {
+        "title": "Change the connection",
+        "description": "The inverter reached at the new address must have the same serial number.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "unit_id": "Unit id"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not read the inverter's identity block.",
+      "unsupported_model": "{model} ({code}) is not an SH-T inverter; only SH5T to SH25T are supported.",
+      "no_serial": "The inverter reported no serial number."
+    },
+    "abort": {
+      "already_configured": "This inverter is already configured.",
+      "reconfigure_successful": "The connection was updated.",
+      "wrong_device": "That address reaches a different inverter."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling and control",
+        "data": {
+          "realtime_interval": "Measurement poll interval",
+          "settings_interval": "Settings poll interval",
+          "battery_max_power_w": "Battery max power",
+          "message_spacing_ms": "Gap between Modbus requests",
+          "include_register_dump": "Include a register dump in diagnostics"
+        },
+        "data_description": {
+          "realtime_interval": "Seconds between reads of the fast-changing measurements.",
+          "settings_interval": "Seconds between reads of the settings, limits, energy counters and alarms.",
+          "battery_max_power_w": "The charge/discharge limit restored by self-consumption mode; the value you run the battery at, not necessarily the inverter's rating.",
+          "message_spacing_ms": "Milliseconds between requests to the dongle; never below 10.",
+          "include_register_dump": "Diagnostics downloads read every register (the serial number is dropped)."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "total_dc_power": {
+        "name": "Total DC power"
+      },
+      "mppt1_power": {
+        "name": "MPPT1 power"
+      },
+      "mppt2_power": {
+        "name": "MPPT2 power"
+      },
+      "mppt3_power": {
+        "name": "MPPT3 power"
+      },
+      "total_active_power": {
+        "name": "Total active power"
+      },
+      "reactive_power": {
+        "name": "Reactive power"
+      },
+      "battery_power": {
+        "name": "Battery power"
+      },
+      "battery_charging_power": {
+        "name": "Battery charging power"
+      },
+      "battery_discharging_power": {
+        "name": "Battery discharging power"
+      },
+      "load_power": {
+        "name": "Load power"
+      },
+      "export_power_raw": {
+        "name": "Export power raw"
+      },
+      "export_power": {
+        "name": "Export power"
+      },
+      "import_power": {
+        "name": "Import power"
+      },
+      "meter_active_power": {
+        "name": "Meter active power"
+      },
+      "meter_phase_a_active_power": {
+        "name": "Meter phase A active power"
+      },
+      "meter_phase_b_active_power": {
+        "name": "Meter phase B active power"
+      },
+      "meter_phase_c_active_power": {
+        "name": "Meter phase C active power"
+      },
+      "backup_phase_a_power": {
+        "name": "Backup phase A power"
+      },
+      "backup_phase_b_power": {
+        "name": "Backup phase B power"
+      },
+      "backup_phase_c_power": {
+        "name": "Backup phase C power"
+      },
+      "total_backup_power": {
+        "name": "Total backup power"
+      },
+      "mppt1_voltage": {
+        "name": "MPPT1 voltage"
+      },
+      "mppt1_current": {
+        "name": "MPPT1 current"
+      },
+      "mppt2_voltage": {
+        "name": "MPPT2 voltage"
+      },
+      "mppt2_current": {
+        "name": "MPPT2 current"
+      },
+      "mppt3_voltage": {
+        "name": "MPPT3 voltage"
+      },
+      "mppt3_current": {
+        "name": "MPPT3 current"
+      },
+      "phase_a_voltage": {
+        "name": "Phase A voltage"
+      },
+      "phase_b_voltage": {
+        "name": "Phase B voltage"
+      },
+      "phase_c_voltage": {
+        "name": "Phase C voltage"
+      },
+      "phase_a_current": {
+        "name": "Phase A current"
+      },
+      "phase_b_current": {
+        "name": "Phase B current"
+      },
+      "phase_c_current": {
+        "name": "Phase C current"
+      },
+      "backup_phase_a_voltage": {
+        "name": "Backup phase A voltage"
+      },
+      "backup_phase_b_voltage": {
+        "name": "Backup phase B voltage"
+      },
+      "backup_phase_c_voltage": {
+        "name": "Backup phase C voltage"
+      },
+      "backup_frequency": {
+        "name": "Backup frequency"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "battery_current": {
+        "name": "Battery current"
+      },
+      "grid_frequency": {
+        "name": "Grid frequency"
+      },
+      "power_factor": {
+        "name": "Power factor"
+      },
+      "battery_level": {
+        "name": "Battery level"
+      },
+      "battery_state_of_health": {
+        "name": "Battery state of health"
+      },
+      "battery_temperature": {
+        "name": "Battery temperature"
+      },
+      "inverter_temperature": {
+        "name": "Inverter temperature"
+      },
+      "inverter_state": {
+        "name": "Inverter state",
+        "state": {
+          "running": "Running",
+          "microgrid_operation": "Microgrid operation",
+          "maintain_mode": "Maintain mode",
+          "compulsory_mode": "Compulsory mode",
+          "off_grid": "Off-grid",
+          "open_loop": "Open loop",
+          "external_ems": "External EMS",
+          "emergency_charging": "Emergency charging",
+          "uninitialized": "Uninitialized",
+          "stop": "Stop",
+          "key_stop": "Key stop",
+          "emergency_stop": "Emergency stop",
+          "standby": "Standby",
+          "initial_standby": "Initial standby",
+          "starting": "Starting",
+          "station_building": "Station building",
+          "warn_running": "Warn running",
+          "derating_running": "Derating running",
+          "dispatch_running": "Dispatch running",
+          "fault": "Fault",
+          "afci_self_test_shutdown": "AFCI self-test shutdown",
+          "safe_mode": "Safe mode",
+          "off_grid_charge": "Off-grid charge",
+          "update_failed": "Update failed",
+          "communicate_fault": "Communication fault",
+          "restarting": "Restarting"
+        }
+      },
+      "running_state_raw": {
+        "name": "Running state raw"
+      },
+      "power_flow_status": {
+        "name": "Power flow status"
+      },
+      "battery_mode": {
+        "name": "Battery mode",
+        "state": {
+          "self_consumption": "Self-consumption",
+          "forced_charge": "Forced charge",
+          "forced_discharge": "Forced discharge",
+          "no_charge": "No charge",
+          "no_discharge": "No discharge",
+          "hold": "Hold",
+          "forced_stop": "Forced stop",
+          "external_ems": "External EMS",
+          "vpp": "VPP",
+          "unknown": "Unknown"
+        }
+      },
+      "self_consumption_today": {
+        "name": "Self-consumption today"
+      },
+      "daily_pv_generation": {
+        "name": "Daily PV generation"
+      },
+      "total_pv_generation": {
+        "name": "Total PV generation"
+      },
+      "daily_exported_energy_from_pv": {
+        "name": "Daily exported energy from PV"
+      },
+      "total_exported_energy_from_pv": {
+        "name": "Total exported energy from PV"
+      },
+      "daily_battery_charge_from_pv": {
+        "name": "Daily battery charge from PV"
+      },
+      "total_battery_charge_from_pv": {
+        "name": "Total battery charge from PV"
+      },
+      "daily_direct_energy_consumption": {
+        "name": "Daily direct energy consumption"
+      },
+      "total_direct_energy_consumption": {
+        "name": "Total direct energy consumption"
+      },
+      "daily_battery_discharge": {
+        "name": "Daily battery discharge"
+      },
+      "total_battery_discharge": {
+        "name": "Total battery discharge"
+      },
+      "daily_imported_energy": {
+        "name": "Daily imported energy"
+      },
+      "total_imported_energy": {
+        "name": "Total imported energy"
+      },
+      "daily_battery_charge": {
+        "name": "Daily battery charge"
+      },
+      "total_battery_charge": {
+        "name": "Total battery charge"
+      },
+      "daily_exported_energy": {
+        "name": "Daily exported energy"
+      },
+      "total_exported_energy": {
+        "name": "Total exported energy"
+      },
+      "daily_pv_generation_battery_discharge": {
+        "name": "Daily PV generation and battery discharge"
+      },
+      "total_pv_generation_battery_discharge": {
+        "name": "Total PV generation and battery discharge"
+      },
+      "export_power_limit": {
+        "name": "Export power limit"
+      },
+      "feed_in_limitation_ratio": {
+        "name": "Feed-in limitation ratio"
+      },
+      "active_power_limitation_ratio": {
+        "name": "Active power limitation ratio"
+      },
+      "battery_max_charge_power": {
+        "name": "Battery max charge power"
+      },
+      "battery_max_discharge_power": {
+        "name": "Battery max discharge power"
+      },
+      "battery_charging_start_power": {
+        "name": "Battery charging start power"
+      },
+      "battery_discharging_start_power": {
+        "name": "Battery discharging start power"
+      },
+      "export_power_limit_min": {
+        "name": "Export power limit min"
+      },
+      "export_power_limit_max": {
+        "name": "Export power limit max"
+      },
+      "bdc_rated_power": {
+        "name": "BDC rated power"
+      },
+      "bms_max_charging_current": {
+        "name": "BMS max charging current"
+      },
+      "bms_max_discharging_current": {
+        "name": "BMS max discharging current"
+      },
+      "battery_capacity_high_precision": {
+        "name": "Battery capacity"
+      },
+      "inverter_rated_output": {
+        "name": "Inverter rated output"
+      },
+      "sungrow_device_type_code": {
+        "name": "Device type code"
+      },
+      "sungrow_device_type": {
+        "name": "Device type"
+      },
+      "sungrow_protocol_version": {
+        "name": "Protocol version"
+      },
+      "sungrow_arm_software": {
+        "name": "ARM software"
+      },
+      "sungrow_dsp_software": {
+        "name": "DSP software"
+      },
+      "inverter_firmware_version": {
+        "name": "Inverter firmware"
+      },
+      "communication_module_firmware_version": {
+        "name": "Communication module firmware"
+      },
+      "battery_firmware_version": {
+        "name": "Battery firmware"
+      },
+      "alarm_inverter_alarm": {
+        "name": "Alarm word inverter alarm"
+      },
+      "alarm_grid_fault": {
+        "name": "Alarm word grid fault"
+      },
+      "alarm_system_fault_1": {
+        "name": "Alarm word system fault 1"
+      },
+      "alarm_system_fault_2": {
+        "name": "Alarm word system fault 2"
+      },
+      "alarm_dc_fault": {
+        "name": "Alarm word dc fault"
+      },
+      "alarm_permanent_fault": {
+        "name": "Alarm word permanent fault"
+      },
+      "alarm_bdc_fault": {
+        "name": "Alarm word bdc fault"
+      },
+      "alarm_bdc_permanent_fault": {
+        "name": "Alarm word bdc permanent fault"
+      },
+      "alarm_battery_fault": {
+        "name": "Alarm word battery fault"
+      },
+      "alarm_battery_alarm": {
+        "name": "Alarm word battery alarm"
+      },
+      "alarm_bms_alarm": {
+        "name": "Alarm word bms alarm"
+      },
+      "alarm_bms_protection": {
+        "name": "Alarm word bms protection"
+      },
+      "alarm_bms_fault_1": {
+        "name": "Alarm word bms fault 1"
+      },
+      "alarm_bms_fault_2": {
+        "name": "Alarm word bms fault 2"
+      },
+      "alarm_bms_alarm_2": {
+        "name": "Alarm word bms alarm 2"
+      }
+    },
+    "binary_sensor": {
+      "pv_generating": {
+        "name": "PV generating"
+      },
+      "battery_charging": {
+        "name": "Battery charging"
+      },
+      "battery_discharging": {
+        "name": "Battery discharging"
+      },
+      "positive_load_power": {
+        "name": "Positive load power"
+      },
+      "exporting_power": {
+        "name": "Exporting power"
+      },
+      "importing_power": {
+        "name": "Importing power"
+      },
+      "negative_load_power": {
+        "name": "Negative load power"
+      },
+      "grid_connected": {
+        "name": "Grid connected"
+      },
+      "inverter_alarm_active": {
+        "name": "Inverter alarm"
+      },
+      "apl_shutdown_at_zero": {
+        "name": "APL shutdown at zero"
+      }
+    }
+  }
 }

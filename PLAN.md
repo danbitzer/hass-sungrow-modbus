@@ -1,6 +1,6 @@
 # hass-sungrow-modbus — implementation plan
 
-Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library, reviewed and fixed); **M2 done and reviewed** (live read-only run on the SH15T: every modelled value matched the mkaiser entities; ranges widened per the WiNet-S block survey with the M1 map kept as a per-component fallback; capture in `tests/fixtures/sh15t_p063.json`; `scripts/survey.py`). **M3 done** (`inverter.battery_control`: guarded, ordered, verified writes; live on the SH15T 2026-09-11 evening with the Numbat actuator disabled — every step wrote only what differed, read back true, and the mkaiser HA entities followed; `scripts/control.py`). Next: M4 integration.
+Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library, reviewed and fixed); **M2 done and reviewed** (live read-only run on the SH15T: every modelled value matched the mkaiser entities; ranges widened per the WiNet-S block survey with the M1 map kept as a per-component fallback; capture in `tests/fixtures/sh15t_p063.json`; `scripts/survey.py`). **M3 done** (`inverter.battery_control`: guarded, ordered, verified writes; live on the SH15T 2026-09-11 evening with the Numbat actuator disabled — every step wrote only what differed, read back true, and the mkaiser HA entities followed; `scripts/control.py`). **M4 built** (config flow, options, coordinators, sensor + binary_sensor, diagnostics, 20 integration tests against the live capture; TCP only — serial deferred). Live install waits on the PyPI project (`lib-v0.1.0a1`) and a copy of `custom_components/sungrow` into Dan's `/config`. Next: M5 controls + actions.
 Repository is private for now, so the HACS validation job is advisory
 (`continue-on-error`) until it is made public.
 
@@ -384,7 +384,7 @@ dev = [
 ]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests", "packages/sungrow-inverter/tests"]
+testpaths = ["tests", "packages/sungrow-inverter/sungrow_inverter_tests"]
 ```
 
 **Library delivery during development.** Tests never need PyPI (uv workspace).
@@ -702,10 +702,10 @@ M3 adds `--apply MODE` behind an explicit confirmation flag.
 ### 7.2 Config flow
 
 The config flow (or its options) carries **Battery max power (W)** as an explicit field, as mkaiser's package does with `sungrow_modbus_battery_max_power`: default `min(nominal_power, bdc_rated_power)`, range 10 W to that value, step 10. It is the restore target of `self_consumption`; Dan's is 10 000 W today (he set it; the inverter can do 15 kW).
-- `step_user`: `connection_type` (tcp | serial), `host`, `port` (502),
-  `unit_id` (1); serial → `step_serial` (device, baudrate 9600, parity N,
-  stopbits 1, bytesize 8) → `ModbusSerialParams`. `create_modbus_params(data)`
-  mirrors trovis-hass.
+- `step_user`: `host`, `port` (502), `unit_id` (1) → `ModbusTcpParams`.
+  Serial (RTU) is deferred: a WiNet-S is TCP and the integration never opens
+  its own link; add a `connection_type` select and a serial step when a
+  user needs it.
 - Probe: `async with async_get_temporary_unit(hass, params, unit_id) as unit:
   probe = await SungrowInverter.async_probe(RetryingUnit(unit))`.
   `ModbusError`/`HomeAssistantError` → `cannot_connect`;

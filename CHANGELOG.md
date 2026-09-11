@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- M4: the `sungrow` integration — config flow (host/port/unit, probed
+  through `modbus`'s temporary unit, gated on the SH-T model, unique id =
+  serial, reconfigure requires the same inverter), options (poll intervals,
+  battery max power, request spacing, register dump), two coordinators
+  (measurements every 10 s, settings every 60 s under the control lock),
+  sensors for every measurement, energy counter (restored across restarts)
+  and diagnostic mirror, binary sensors for the power-flow bits, grid
+  presence and alarms, `sensor.battery_mode` with the settings as
+  attributes, and diagnostics with the serial and host redacted. The
+  library's test package is now `sungrow_inverter_tests` (two `tests`
+  packages cannot share one pytest session).
 - M3: `BatteryControl` — battery modes (self_consumption, no_charge, hold,
   forced_charge, forced_discharge), export limit and PV limitation as
   guarded writes: only registers that differ are written, in an order that

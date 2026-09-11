@@ -1,0 +1,35 @@
+{
+  "entity": {
+    "sensor": {
+      "battery_mode": {
+        "default": "mdi:battery-sync"
+      },
+      "inverter_state": {
+        "default": "mdi:state-machine"
+      },
+      "total_dc_power": {
+        "default": "mdi:solar-power-variant"
+      },
+      "load_power": {
+        "default": "mdi:home-lightning-bolt"
+      },
+      "export_power": {
+        "default": "mdi:transmission-tower-export"
+      },
+      "import_power": {
+        "default": "mdi:transmission-tower-import"
+      }
+    },
+    "binary_sensor": {
+      "pv_generating": {
+        "default": "mdi:solar-power",
+        "state": {
+          "off": "mdi:solar-power-variant-outline"
+        }
+      },
+      "grid_connected": {
+        "default": "mdi:transmission-tower"
+      }
+    }
+  }
+}

@@ -4,6 +4,7 @@
   "codeowners": [
     "@danbitzer"
   ],
+  "config_flow": true,
   "dependencies": [
     "modbus"
   ],

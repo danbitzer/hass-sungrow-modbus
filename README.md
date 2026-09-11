@@ -41,3 +41,22 @@ tracks — see `CLAUDE.md`.
 
 MIT. Register knowledge is derived from mkaiser's MIT-licensed package and
 Sungrow's protocol document; see `NOTICE.md`.
+
+## Installing
+
+The integration needs the `sungrow-inverter` library from PyPI (the manifest
+pins the exact version) and Home Assistant 2026.9 or newer.
+
+1. Copy `custom_components/sungrow` into your Home Assistant `config/custom_components/`
+   (or add this repository as a custom repository in HACS once it is public).
+2. Restart Home Assistant.
+3. Settings → Devices & services → Add integration → **Sungrow SH-T Hybrid
+   Inverter**. Enter the WiNet-S host, port 502 and unit id 1. The flow reads
+   the identity block and refuses anything that is not an SH-T model.
+4. Options: set **Battery max power** to the charge/discharge limit you run the
+   battery at (the value self-consumption mode restores), not the inverter's
+   rating.
+
+The integration reads through Home Assistant's shared Modbus connection. If
+the mkaiser YAML package is still loaded for the same dongle, expect
+contention (exception 4) until it is removed; the library retries it.

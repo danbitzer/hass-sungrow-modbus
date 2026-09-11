@@ -11,7 +11,7 @@ echo "==> mypy (strict: library, scripts, integration, workspace tests)"
 uv run mypy
 echo "==> mypy (library tests)"
 # A second run: both packages have a `tests` package, which one run cannot hold.
-uv run mypy packages/sungrow-inverter/tests
+uv run mypy packages/sungrow-inverter/sungrow_inverter_tests
 echo "==> version sync"
 uv run python scripts/sync_version.py --check
 echo "==> pytest"

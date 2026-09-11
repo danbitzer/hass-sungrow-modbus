@@ -35,4 +35,4 @@ packages = ["src/sungrow_inverter"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["sungrow_inverter_tests"]

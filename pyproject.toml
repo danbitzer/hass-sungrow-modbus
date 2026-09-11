@@ -28,9 +28,11 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests", "packages/sungrow-inverter/tests"]
+testpaths = ["tests", "packages/sungrow-inverter/sungrow_inverter_tests"]
 # Two `tests` packages (workspace + library) collide under the default mode.
 addopts = "--import-mode=importlib"
+# custom_components must be importable as a package for the HA loader.
+pythonpath = ["."]
 
 [tool.ruff]
 target-version = "py313"
@@ -47,6 +49,8 @@ combine-as-imports = true
 known-first-party = ["sungrow_inverter", "custom_components"]
 
 [tool.mypy]
+# custom_components is a namespace package (no __init__.py), as HA expects.
+explicit_package_bases = true
 # Home Assistant core is 3.14-only syntax; the library itself stays 3.13-clean via ruff.
 python_version = "3.14"
 strict = true
@@ -56,3 +60,7 @@ files = [
     "custom_components",
     "tests",
 ]
+
+[[tool.mypy.overrides]]
+module = ["pytest_homeassistant_custom_component.*"]
+ignore_missing_imports = true
