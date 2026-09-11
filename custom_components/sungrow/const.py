@@ -7,7 +7,14 @@ from homeassistant.const import Platform
 DOMAIN = "sungrow"
 MANUFACTURER = "Sungrow"
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 # Entry data (from the config flow's probe).
 CONF_UNIT_ID = "unit_id"
@@ -38,3 +45,20 @@ SETTINGS = "settings"
 SERIAL_ADDRESS = 4989
 SERIAL_WORDS = 10
 """Input registers holding the serial number, dropped from diagnostics."""
+
+# Actions.
+SERVICE_SET_BATTERY_MODE = "set_battery_mode"
+SERVICE_SET_EXPORT_LIMIT = "set_export_limit"
+SERVICE_SET_PV_LIMITATION = "set_pv_limitation"
+SERVICE_START_INVERTER = "start_inverter"
+SERVICE_STOP_INVERTER = "stop_inverter"
+ATTR_MODE = "mode"
+ATTR_POWER_W = "power_w"
+ATTR_VERIFY = "verify"
+ATTR_LIMIT_W = "limit_w"
+ATTR_ENABLED = "enabled"
+ATTR_LIMIT = "limit"
+
+FRESHNESS_MARGIN_S = 5
+"""Added to the settings poll interval: a snapshot from the last poll is
+fresh enough for a control call, so it does not re-read first."""

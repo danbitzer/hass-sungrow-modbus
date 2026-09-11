@@ -440,6 +440,195 @@
       "apl_shutdown_at_zero": {
         "name": "APL shutdown at zero"
       }
+    },
+    "number": {
+      "battery_forced_charge_discharge_power": {
+        "name": "Battery forced charge/discharge power"
+      },
+      "battery_max_charge_power": {
+        "name": "Battery max charge power"
+      },
+      "battery_max_discharge_power": {
+        "name": "Battery max discharge power"
+      },
+      "battery_min_soc": {
+        "name": "Battery min SoC"
+      },
+      "battery_max_soc": {
+        "name": "Battery max SoC"
+      },
+      "battery_reserved_soc_for_backup": {
+        "name": "Battery reserved SoC for backup"
+      },
+      "export_power_limit": {
+        "name": "Export power limit"
+      },
+      "active_power_limit_ratio": {
+        "name": "Active power limit ratio"
+      }
+    },
+    "select": {
+      "ems_mode": {
+        "name": "EMS mode",
+        "state": {
+          "self_consumption": "Self-consumption",
+          "compulsory": "Forced (compulsory)",
+          "external_ems": "External EMS",
+          "vpp": "VPP"
+        }
+      },
+      "battery_forced_charge_discharge": {
+        "name": "Battery forced charge/discharge",
+        "state": {
+          "charge": "Charge",
+          "discharge": "Discharge",
+          "stop": "Stop"
+        }
+      }
+    },
+    "switch": {
+      "export_power_limit": {
+        "name": "Export power limit"
+      },
+      "backup_mode": {
+        "name": "Backup mode"
+      },
+      "pv_power_limitation": {
+        "name": "PV power limitation"
+      },
+      "active_power_limitation": {
+        "name": "Active power limitation"
+      }
+    },
+    "button": {
+      "start_inverter": {
+        "name": "Start inverter"
+      },
+      "stop_inverter": {
+        "name": "Stop inverter"
+      }
+    }
+  },
+  "services": {
+    "set_battery_mode": {
+      "name": "Set battery mode",
+      "description": "Put the battery into a mode, writing only the registers that differ, in a safe order, and reading them back.",
+      "fields": {
+        "device_id": {
+          "name": "Inverter",
+          "description": "The Sungrow inverter to control."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "self_consumption restores the limits and leaves the inverter to itself; forced_charge / forced_discharge move power_w watts; no_charge, no_discharge and hold fence the battery."
+        },
+        "power_w": {
+          "name": "Power",
+          "description": "Watts for forced_charge / forced_discharge, up to the battery max power option."
+        },
+        "verify": {
+          "name": "Verify",
+          "description": "Read the registers back after writing and fail if they do not hold the requested values."
+        }
+      }
+    },
+    "set_export_limit": {
+      "name": "Set export limit",
+      "description": "Cap grid export (feed-in limitation). Leave the limit empty to lift the limitation.",
+      "fields": {
+        "device_id": {
+          "name": "Inverter",
+          "description": "The Sungrow inverter to control."
+        },
+        "limit_w": {
+          "name": "Limit",
+          "description": "Export cap in watts, clamped to the inverter's range. Empty lifts the limitation."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Off writes the limit value but leaves the limitation disabled."
+        },
+        "verify": {
+          "name": "Verify",
+          "description": "Read the registers back after writing and fail if they do not hold the requested values."
+        }
+      }
+    },
+    "set_pv_limitation": {
+      "name": "Set PV limitation",
+      "description": "Stop or allow all PV generation (SH-T only). Limiting PV also stops PV charging the battery.",
+      "fields": {
+        "device_id": {
+          "name": "Inverter",
+          "description": "The Sungrow inverter to control."
+        },
+        "limit": {
+          "name": "Limit PV",
+          "description": "On stops PV generation; off allows it."
+        },
+        "verify": {
+          "name": "Verify",
+          "description": "Read the registers back after writing and fail if they do not hold the requested values."
+        }
+      }
+    },
+    "start_inverter": {
+      "name": "Start inverter",
+      "description": "Boot the inverter. It takes minutes to generate again.",
+      "fields": {
+        "device_id": {
+          "name": "Inverter",
+          "description": "The Sungrow inverter to control."
+        }
+      }
+    },
+    "stop_inverter": {
+      "name": "Stop inverter",
+      "description": "Put the battery into self-consumption, then shut the inverter down. It will not restart itself, and a stopped hybrid does not enter backup mode.",
+      "fields": {
+        "device_id": {
+          "name": "Inverter",
+          "description": "The Sungrow inverter to control."
+        }
+      }
+    }
+  },
+  "selector": {
+    "battery_mode": {
+      "options": {
+        "self_consumption": "Self-consumption",
+        "forced_charge": "Forced charge",
+        "forced_discharge": "Forced discharge",
+        "no_charge": "No charge",
+        "no_discharge": "No discharge",
+        "hold": "Hold"
+      }
+    }
+  },
+  "exceptions": {
+    "power_required": {
+      "message": "{mode} needs a power value."
+    },
+    "power_out_of_range": {
+      "message": "{what} of {value} W is outside {low}–{high} W."
+    },
+    "invalid_value": {
+      "message": "{field} does not accept {value}: {reason}."
+    },
+    "verification_failed": {
+      "message": "{field} reads {actual} after writing {expected}; the inverter did not take the value."
+    },
+    "write_failed": {
+      "message": "Writing {field} failed: {error}."
+    },
+    "write_uncertain": {
+      "message": "No answer while writing {field} ({error}); the value may or may not have landed."
+    },
+    "control_failed": {
+      "message": "The control call failed: {error}."
+    },
+    "would_stop_inverter": {
+      "message": "An active power limit of 0 % would shut the inverter down: shutdown at 0 % is on."
     }
   }
 }

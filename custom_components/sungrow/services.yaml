@@ -1,0 +1,93 @@
+set_battery_mode:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: sungrow
+    mode:
+      required: true
+      selector:
+        select:
+          options:
+            - self_consumption
+            - forced_charge
+            - forced_discharge
+            - no_charge
+            - no_discharge
+            - hold
+          translation_key: battery_mode
+    power_w:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 30000
+          step: 100
+          unit_of_measurement: W
+          mode: box
+    verify:
+      required: false
+      default: true
+      selector:
+        boolean:
+
+set_export_limit:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: sungrow
+    limit_w:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 65535
+          step: 100
+          unit_of_measurement: W
+          mode: box
+    enabled:
+      required: false
+      default: true
+      selector:
+        boolean:
+    verify:
+      required: false
+      default: true
+      selector:
+        boolean:
+
+set_pv_limitation:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: sungrow
+    limit:
+      required: true
+      selector:
+        boolean:
+    verify:
+      required: false
+      default: true
+      selector:
+        boolean:
+
+start_inverter:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: sungrow
+
+stop_inverter:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: sungrow

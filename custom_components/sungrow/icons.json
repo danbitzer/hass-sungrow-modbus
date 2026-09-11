@@ -30,6 +30,64 @@
       "grid_connected": {
         "default": "mdi:transmission-tower"
       }
+    },
+    "number": {
+      "battery_forced_charge_discharge_power": {
+        "default": "mdi:battery-arrow-up-outline"
+      },
+      "battery_max_charge_power": {
+        "default": "mdi:battery-arrow-up"
+      },
+      "battery_max_discharge_power": {
+        "default": "mdi:battery-arrow-down"
+      },
+      "export_power_limit": {
+        "default": "mdi:transmission-tower-export"
+      }
+    },
+    "select": {
+      "ems_mode": {
+        "default": "mdi:battery-sync"
+      },
+      "battery_forced_charge_discharge": {
+        "default": "mdi:battery-charging"
+      }
+    },
+    "switch": {
+      "pv_power_limitation": {
+        "default": "mdi:solar-power-variant-outline"
+      },
+      "export_power_limit": {
+        "default": "mdi:transmission-tower-export"
+      },
+      "backup_mode": {
+        "default": "mdi:home-battery"
+      }
+    },
+    "button": {
+      "start_inverter": {
+        "default": "mdi:play"
+      },
+      "stop_inverter": {
+        "default": "mdi:stop"
+      }
+    }
+  },
+  "services": {
+    "set_battery_mode": {
+      "service": "mdi:battery-sync"
+    },
+    "set_export_limit": {
+      "service": "mdi:transmission-tower-export"
+    },
+    "set_pv_limitation": {
+      "service": "mdi:solar-power-variant-outline"
+    },
+    "start_inverter": {
+      "service": "mdi:play"
+    },
+    "stop_inverter": {
+      "service": "mdi:stop"
     }
   }
 }

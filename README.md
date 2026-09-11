@@ -37,6 +37,27 @@ python scripts/sync_version.py --check   # library version == manifest pin
 Never put a real inverter serial number, host or address into anything git
 tracks — see `CLAUDE.md`.
 
+## Controls
+
+Five actions do the work an automation needs, each a guarded sequence: only
+registers that differ are written, in an order that leaves a sane state if
+one fails, and every write is read back. Each returns a response listing
+what was written, what was already right, whether it verified, and the
+battery mode that resulted.
+
+- `sungrow.set_battery_mode` — `mode` is one of `self_consumption`,
+  `forced_charge`, `forced_discharge` (both need `power_w`), `no_charge`,
+  `no_discharge`, `hold`. Repeating a call is write-free.
+- `sungrow.set_export_limit` — `limit_w` caps grid export; leave it empty to
+  lift the limitation.
+- `sungrow.set_pv_limitation` — `limit: true` stops all PV generation,
+  including PV charging the battery (SH-T only).
+- `sungrow.start_inverter` / `sungrow.stop_inverter` — stop puts the battery
+  into self-consumption first, since the EMS mode survives a shutdown.
+
+The raw registers are also exposed as number, select and switch entities for
+users of the mkaiser package; they write one register each with no guarding.
+
 ## Known register quirks (SH15T, firmware P063, WiNet-S V300)
 
 - The daily grid counters (regs 13036 import, 13045 export) read 0 all day

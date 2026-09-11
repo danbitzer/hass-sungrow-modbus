@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- M5: controls and actions. Actions `sungrow.set_battery_mode` (six
+  requestable modes, `power_w`, `verify`), `set_export_limit` (`limit_w`,
+  `enabled`; empty lifts the limitation), `set_pv_limitation`,
+  `start_inverter` and `stop_inverter` (which puts the battery into
+  self-consumption first, because the EMS mode survives a shutdown). Every
+  action goes through the library's guarded write layer, trusts a settings
+  snapshot from the last poll, returns the write report plus the resulting
+  battery mode as a response, and publishes what it read back so
+  `sensor.battery_mode` moves at once. Raw entities for parity with mkaiser:
+  numbers (forced power, max charge/discharge power, min/max SoC, backup
+  reserve, export power limit, active power limit ratio), selects (EMS mode,
+  charge command), switches (export limit, backup mode, PV limitation, active
+  power limitation) and buttons (start; stop disabled by default). Numbers
+  range to what the inverter can move, not to the battery max power option;
+  a 0 % active power limit is refused while "shutdown at 0 %" is on. Typed
+  errors with translations. 16 tests.
 - The library's PyPI name is `sungrow-sht-modbus` (PyPI refused
   `sungrow-inverter` as too similar to an existing project); the import
   name stays `sungrow_inverter`. The package directory follows.

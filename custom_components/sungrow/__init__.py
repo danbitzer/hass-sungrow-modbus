@@ -14,6 +14,8 @@ from homeassistant.components.modbus import async_get_unit
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
 from sungrow_inverter import RetryingUnit, SungrowInverter
 
@@ -34,8 +36,11 @@ from .const import (
 )
 from .coordinator import SungrowCoordinator
 from .helpers import battery_max_power_default, create_modbus_params
+from .services import async_setup_services
 
 __all__ = ["DOMAIN", "SungrowConfigEntry", "SungrowRuntime"]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 @dataclass
@@ -48,6 +53,12 @@ class SungrowRuntime:
 
 
 type SungrowConfigEntry = ConfigEntry[SungrowRuntime]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the actions."""
+    async_setup_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SungrowConfigEntry) -> bool:

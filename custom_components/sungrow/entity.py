@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -11,6 +13,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from sungrow_inverter import SungrowInverter
 
 from .coordinator import SungrowCoordinator
+from .errors import raise_for_write_error
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _always(device: SungrowInverter) -> bool:
@@ -66,3 +71,24 @@ class SungrowEntity(CoordinatorEntity[SungrowCoordinator]):
     def available(self) -> bool:
         """Unavailable when a component the value needs failed its last poll."""
         return super().available and self._components_updated()
+
+    async def async_write(self, component: str, field: str, value: Any) -> None:
+        """Write one register under the control lock, read it back, publish.
+
+        For the raw control entities. The guarded sequences live in the
+        library's ``BatteryControl``; this is the single-register path.
+        """
+        device = self.device
+        label = f"{component}.{field}"
+        target = getattr(device, component)
+        previous = getattr(target, field)
+        try:
+            async with device.battery_control.lock:
+                await target.write(field, value)
+                report = await device.async_refresh(component)
+        except Exception as err:  # noqa: BLE001 - mapped to HA errors
+            raise_for_write_error(label, value, err)
+        _LOGGER.info("%s: %s -> %s", label, previous, value)
+        if report.failed:
+            raise_for_write_error(label, value, next(iter(report.failed.values())))
+        self.coordinator.async_apply_snapshot(component)
