@@ -23,6 +23,11 @@
           "host": "Host",
           "port": "Port",
           "unit_id": "Unit id"
+        },
+        "data_description": {
+          "host": "IP address or hostname of the WiNet-S dongle.",
+          "port": "Modbus TCP port, normally 502.",
+          "unit_id": "Modbus unit (slave) id, normally 1."
         }
       }
     },
@@ -244,7 +249,7 @@
           "forced_stop": "Forced stop",
           "external_ems": "External EMS",
           "vpp": "VPP",
-          "unknown": "Unknown"
+          "inconsistent": "Inconsistent"
         }
       },
       "self_consumption_today": {
@@ -304,20 +309,8 @@
       "total_pv_generation_battery_discharge": {
         "name": "Total PV generation and battery discharge"
       },
-      "export_power_limit": {
-        "name": "Export power limit"
-      },
       "feed_in_limitation_ratio": {
         "name": "Feed-in limitation ratio"
-      },
-      "active_power_limitation_ratio": {
-        "name": "Active power limitation ratio"
-      },
-      "battery_max_charge_power": {
-        "name": "Battery max charge power"
-      },
-      "battery_max_discharge_power": {
-        "name": "Battery max discharge power"
       },
       "battery_charging_start_power": {
         "name": "Battery charging start power"

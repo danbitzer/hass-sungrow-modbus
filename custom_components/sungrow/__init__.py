@@ -7,25 +7,19 @@ a connection itself; it asks ``modbus`` for a unit.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
 
 from homeassistant.components.modbus import async_get_unit
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
-from modbus_connection import ModbusTcpParams
 
 from sungrow_inverter import RetryingUnit, SungrowInverter
 
 from .const import (
     CONF_BATTERY_MAX_POWER_W,
-    CONF_BDC_RATED_POWER_W,
     CONF_MESSAGE_SPACING_MS,
-    CONF_NOMINAL_POWER_W,
     CONF_REALTIME_INTERVAL,
     CONF_SETTINGS_INTERVAL,
     CONF_UNIT_ID,
@@ -39,8 +33,9 @@ from .const import (
     SETTINGS,
 )
 from .coordinator import SungrowCoordinator
+from .helpers import battery_max_power_default, create_modbus_params
 
-__all__ = ["DOMAIN", "SungrowConfigEntry", "SungrowRuntime", "create_modbus_params"]
+__all__ = ["DOMAIN", "SungrowConfigEntry", "SungrowRuntime"]
 
 
 @dataclass
@@ -53,21 +48,6 @@ class SungrowRuntime:
 
 
 type SungrowConfigEntry = ConfigEntry[SungrowRuntime]
-
-
-def create_modbus_params(data: Mapping[str, Any]) -> ModbusTcpParams:
-    """The connection parameters an entry's data describes (Modbus TCP)."""
-    return ModbusTcpParams(host=str(data[CONF_HOST]), port=int(data[CONF_PORT]))
-
-
-def battery_max_power_default(data: Mapping[str, Any]) -> int | None:
-    """The restore target when the option is unset: min(nominal, BDC)."""
-    known = [
-        int(data[key])
-        for key in (CONF_NOMINAL_POWER_W, CONF_BDC_RATED_POWER_W)
-        if data.get(key) is not None
-    ]
-    return min(known) if known else None
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SungrowConfigEntry) -> bool:
@@ -85,6 +65,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SungrowConfigEntry) -> b
         MIN_MESSAGE_SPACING_MS,
     )
     unit.set_message_spacing(spacing_ms / 1000)
+    # The spacing lives on the shared connection, which may outlive this entry.
+    entry.async_on_unload(lambda: unit.set_message_spacing(0))
 
     battery_max_power = entry.options.get(CONF_BATTERY_MAX_POWER_W)
     device = SungrowInverter(
@@ -106,6 +88,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SungrowConfigEntry) -> b
                 entry.options.get(CONF_REALTIME_INTERVAL, DEFAULT_REALTIME_INTERVAL)
             )
         ),
+        # Only this tier recycles a stuck link: it polls six times as often
+        # and shares the connection, so a wedged settings poll surfaces here.
         count_timeouts=True,
     )
     settings = SungrowCoordinator(
@@ -121,6 +105,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SungrowConfigEntry) -> b
         ),
         # A settings poll must not interleave with an action's write sequence.
         lock=device.battery_control.lock,
+        watch_battery_mode=True,
     )
     # The first realtime refresh runs the library's setup: identity, model
     # gate, optional probes. Nothing is written.

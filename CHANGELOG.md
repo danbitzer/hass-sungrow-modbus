@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- M4 review fixes: `BatteryMode.INCONSISTENT` replaces `unknown` (which
+  collided with Home Assistant's own "no value" state); `effective_mode()`
+  no longer logs — the settings coordinator warns once when the settings
+  stop adding up and once when they recover; a settings poll that finds a
+  control call holding the lock returns the last report instead of waiting
+  on itself; diagnostics reads the registers under the control lock; an
+  entity derived from several components (`grid_connected`,
+  `battery_mode`) is unavailable when any of them failed; the 1 % dip
+  filter also covers lifetime totals; connection errors count towards the
+  stuck-link drop; the probe in the config flow retries once and never
+  waits out a silent host; no `None` battery max power is stored; the
+  writable limits are no longer mirrored as diagnostic sensors (they become
+  number entities in M5); the device has an explicit name and no bogus
+  hardware version; message spacing is cleared from the shared connection
+  on unload; `PARALLEL_UPDATES` declared; the daily grid import/export
+  counters ship disabled (they never move on an SH15T P063 while their
+  totals do). 15 more integration tests (control lock held by the settings
+  poll, link drop, restore across a restart, dip filter, no serial,
+  options without a rating, dump toggle, mkaiser unit classes for every
+  energy id).
 - M4: the `sungrow` integration — config flow (host/port/unit, probed
   through `modbus`'s temporary unit, gated on the SH-T model, unique id =
   serial, reconfigure requires the same inverter), options (poll intervals,

@@ -37,6 +37,19 @@ python scripts/sync_version.py --check   # library version == manifest pin
 Never put a real inverter serial number, host or address into anything git
 tracks — see `CLAUDE.md`.
 
+## Known register quirks (SH15T, firmware P063, WiNet-S V300)
+
+- The daily grid counters (regs 13036 import, 13045 export) read 0 all day
+  while the lifetime totals (13037, 13046) keep moving. Their sensors ship
+  disabled; enable them if your firmware serves them.
+- "Total output energy" (5004, documented as PV generation plus battery
+  discharge) equals total export (13046) to the register, and its daily
+  counterpart (5003) is below daily PV generation. It looks like the grid
+  export counter on this firmware; the sensors keep the documented names.
+- The WiNet-S answers 0 for a register it does not forward, so a
+  self-consumption EMS mode is only believed when the running state agrees;
+  otherwise `sensor.battery_mode` reads `inconsistent`.
+
 ## License
 
 MIT. Register knowledge is derived from mkaiser's MIT-licensed package and

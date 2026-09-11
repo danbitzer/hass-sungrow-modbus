@@ -251,7 +251,7 @@ class BatteryControl:
         return (
             step.component == "settings"
             and step.field == "ems_mode"
-            and self.effective_mode() is BatteryMode.UNKNOWN
+            and self.effective_mode() is BatteryMode.INCONSISTENT
         )
 
     def plan(self, desired: DesiredState) -> list[PlannedWrite]:
@@ -489,7 +489,9 @@ class BatteryControl:
         state (once polled) agrees: a WiNet-S answers 0 for a register it
         does not forward, and 0 is that mode's code. The running state lags
         a mode change by a few seconds, so a disagreement within ``grace_s``
-        of an EMS write of ours is not counted.
+        of an EMS write of ours is not counted. ``INCONSISTENT`` means the
+        settings do not add up: a doubted EMS word, a forced mode with no
+        command, or a limit that is not served. Pure and silent.
         """
         settings = self._inv.settings
         ems = settings.ems_mode
@@ -501,7 +503,7 @@ class BatteryControl:
                     ChargeCommand.CHARGE: BatteryMode.FORCED_CHARGE,
                     ChargeCommand.DISCHARGE: BatteryMode.FORCED_DISCHARGE,
                     ChargeCommand.STOP: BatteryMode.FORCED_STOP,
-                    None: BatteryMode.UNKNOWN,
+                    None: BatteryMode.INCONSISTENT,
                 }[settings.charge_command]
             case EmsMode.EXTERNAL_EMS:
                 return BatteryMode.EXTERNAL_EMS
@@ -513,16 +515,13 @@ class BatteryControl:
             and time.monotonic() - self._ems_written_at < self._grace
         )
         if state in _FORCED_STATES and not recent:
-            _LOGGER.warning(
-                "EMS mode reads self-consumption but the running state is %s; "
-                "the register may not be served",
-                state.value,
-            )
-            return BatteryMode.UNKNOWN
+            # Not logged here: callers read this on every state write. The
+            # integration logs the transition once, from its poll.
+            return BatteryMode.INCONSISTENT
         limits = self._inv.battery_limits
         charge, discharge = limits.max_charge_power, limits.max_discharge_power
         if charge is None or discharge is None:
-            return BatteryMode.UNKNOWN
+            return BatteryMode.INCONSISTENT
         fence = self._inv.fence_power_w
         charge_fenced, discharge_fenced = charge <= fence, discharge <= fence
         if charge_fenced and discharge_fenced:

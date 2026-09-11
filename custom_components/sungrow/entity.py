@@ -21,13 +21,22 @@ def _always(device: SungrowInverter) -> bool:
 class SungrowEntityDescription(EntityDescription):
     """What every Sungrow entity description carries."""
 
-    report_name: str | None
-    """The component the value comes from, as the update report names it;
-    None for a setup-time block that is never polled (identity, ratings)."""
+    report_name: str | tuple[str, ...] | None
+    """The component(s) the value comes from, as the update report names
+    them; None for a setup-time block that is never polled (identity,
+    ratings). A value derived from several components names them all."""
     poll: str = "realtime"
     """Which coordinator refreshes it: ``realtime`` or ``settings``."""
     exists: Callable[[SungrowInverter], bool] = _always
     """Whether this inverter serves the value (optional blocks, MPPT count)."""
+
+    @property
+    def report_names(self) -> tuple[str, ...]:
+        """``report_name`` as a tuple; empty for a setup-time value."""
+        name = self.report_name
+        if name is None:
+            return ()
+        return (name,) if isinstance(name, str) else name
 
 
 class SungrowEntity(CoordinatorEntity[SungrowCoordinator]):
@@ -48,10 +57,12 @@ class SungrowEntity(CoordinatorEntity[SungrowCoordinator]):
     def device(self) -> SungrowInverter:
         return self.coordinator.device
 
+    def _components_updated(self) -> bool:
+        """Whether every component the value needs refreshed in the last poll."""
+        updated = self.coordinator.data.updated
+        return all(name in updated for name in self.entity_description.report_names)
+
     @property
     def available(self) -> bool:
-        """Unavailable when the value's own component failed its last poll."""
-        if not super().available:
-            return False
-        name = self.entity_description.report_name
-        return name is None or name in self.coordinator.data.updated
+        """Unavailable when a component the value needs failed its last poll."""
+        return super().available and self._components_updated()

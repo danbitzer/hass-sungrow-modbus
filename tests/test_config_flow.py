@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
@@ -22,7 +24,7 @@ from custom_components.sungrow.const import (
     DOMAIN,
 )
 
-from .conftest import CONNECTION, SERIAL, setup_entry
+from .conftest import CONNECTION, ENTRY_DATA, SERIAL, setup_entry
 
 
 async def test_user_flow_creates_the_entry(hass: HomeAssistant) -> None:
@@ -81,6 +83,21 @@ async def test_non_sht_inverter_is_named_in_the_error(
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "unsupported_model"}
     assert result["description_placeholders"] == {"model": "SH10RT", "code": "0x0E03"}
+
+
+async def test_no_serial_is_an_error(
+    hass: HomeAssistant, mock_unit: MockModbusUnit
+) -> None:
+    for address in range(4989, 4999):
+        mock_unit.input[address] = 0
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], CONNECTION
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "no_serial"}
 
 
 async def test_same_inverter_twice_aborts(
@@ -144,3 +161,53 @@ async def test_reconfigure_requires_the_same_inverter(
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
+
+
+async def test_interval_option_moves_the_coordinator(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    await setup_entry(hass, config_entry)
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_REALTIME_INTERVAL: 20,
+            CONF_SETTINGS_INTERVAL: 300,
+            CONF_BATTERY_MAX_POWER_W: 10000,
+            CONF_MESSAGE_SPACING_MS: 50,
+            "include_register_dump": True,
+        },
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    runtime = config_entry.runtime_data
+    assert runtime.realtime.update_interval == timedelta(seconds=20)
+    assert runtime.settings.update_interval == timedelta(seconds=300)
+
+
+async def test_options_without_a_known_rating(hass: HomeAssistant) -> None:
+    """No nominal or BDC rating: no default is stored, and the form still
+    opens and submits."""
+    data = {
+        k: v
+        for k, v in ENTRY_DATA.items()
+        if k not in (CONF_NOMINAL_POWER_W, CONF_BDC_RATED_POWER_W)
+    }
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=SERIAL, data=data, options={})
+    await setup_entry(hass, entry)
+    assert entry.runtime_data.device.battery_max_power_w == 15000  # the ratings
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_REALTIME_INTERVAL: 10,
+            CONF_SETTINGS_INTERVAL: 60,
+            CONF_BATTERY_MAX_POWER_W: 12000,
+            CONF_MESSAGE_SPACING_MS: 50,
+            "include_register_dump": True,
+        },
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.runtime_data.device.battery_max_power_w == 12000

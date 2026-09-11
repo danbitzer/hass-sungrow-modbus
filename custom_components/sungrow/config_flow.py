@@ -28,11 +28,11 @@ from modbus_connection import ModbusError
 from sungrow_inverter import (
     ProbeResult,
     RetryingUnit,
+    RetryPolicy,
     SungrowInverter,
     UnsupportedModelError,
 )
 
-from . import battery_max_power_default, create_modbus_params
 from .const import (
     CONF_BATTERY_MAX_POWER_W,
     CONF_BDC_RATED_POWER_W,
@@ -52,6 +52,10 @@ from .const import (
     DOMAIN,
     MIN_MESSAGE_SPACING_MS,
 )
+from .helpers import battery_max_power_default, create_modbus_params
+
+PROBE_RETRY = RetryPolicy(attempts=2, retry_timeouts=False)
+"""One retry on a transient exception; a silent host fails within a timeout."""
 
 
 def _box(
@@ -94,7 +98,7 @@ async def _async_probe(hass: HomeAssistant, data: Mapping[str, Any]) -> ProbeRes
     async with async_get_temporary_unit(
         hass, create_modbus_params(data), int(data[CONF_UNIT_ID])
     ) as unit:
-        return await SungrowInverter.async_probe(RetryingUnit(unit))
+        return await SungrowInverter.async_probe(RetryingUnit(unit, PROBE_RETRY))
 
 
 def _entry_data(connection: Mapping[str, Any], probe: ProbeResult) -> dict[str, Any]:
@@ -143,10 +147,15 @@ class SungrowConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(probe.serial)
                 self._abort_if_unique_id_configured(updates=connection)
                 data = _entry_data(connection, probe)
+                default = battery_max_power_default(data)
                 return self.async_create_entry(
                     title=f"Sungrow {probe.model.name}",
                     data=data,
-                    options={CONF_BATTERY_MAX_POWER_W: battery_max_power_default(data)},
+                    options=(
+                        {CONF_BATTERY_MAX_POWER_W: default}
+                        if default is not None
+                        else {}
+                    ),
                 )
         return self.async_show_form(
             step_id="user",
@@ -205,6 +214,7 @@ class SungrowOptionsFlow(OptionsFlowWithReload):
         entry = self.config_entry
         options = entry.options
         max_power = battery_max_power_default(entry.data) or 10 * 0xFFFF
+        current_power = options.get(CONF_BATTERY_MAX_POWER_W) or max_power
         schema = vol.Schema(
             {
                 vol.Required(
@@ -221,7 +231,7 @@ class SungrowOptionsFlow(OptionsFlowWithReload):
                 ): _box(30, 600, 1, "s"),
                 vol.Required(
                     CONF_BATTERY_MAX_POWER_W,
-                    default=options.get(CONF_BATTERY_MAX_POWER_W, max_power),
+                    default=current_power,
                 ): _box(10, max_power, 10, "W"),
                 vol.Required(
                     CONF_MESSAGE_SPACING_MS,

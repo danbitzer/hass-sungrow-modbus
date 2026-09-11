@@ -1,9 +1,18 @@
-"""Poll the inverter on two intervals and publish each poll's report."""
+"""Poll the inverter on two intervals and publish each poll's report.
+
+The settings coordinator polls under ``device.battery_control.lock`` so a
+poll never interleaves with a control call's write sequence. The lock is
+not re-entrant: code running inside a control call must never await
+``async_refresh()`` on the settings coordinator (it would wait on itself);
+it publishes what it read back with ``async_apply_snapshot`` instead. A
+poll that finds the lock taken returns the last report unchanged.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import timedelta
@@ -14,9 +23,15 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from modbus_connection import ModbusError, ModbusTimeoutError
+from modbus_connection import ModbusConnectionError, ModbusError, ModbusTimeoutError
 
-from sungrow_inverter import SungrowInverter, UnsupportedModelError, UpdateReport
+from sungrow_inverter import (
+    BatteryMode,
+    SungrowError,
+    SungrowInverter,
+    UnsupportedModelError,
+    UpdateReport,
+)
 
 from .const import CONF_SERIAL, DOMAIN, MANUFACTURER
 
@@ -45,6 +60,7 @@ class SungrowCoordinator(DataUpdateCoordinator[UpdateReport]):
         *,
         count_timeouts: bool = False,
         lock: asyncio.Lock | None = None,
+        watch_battery_mode: bool = False,
     ) -> None:
         super().__init__(
             hass,
@@ -58,8 +74,10 @@ class SungrowCoordinator(DataUpdateCoordinator[UpdateReport]):
         self._poll = poll
         self._count_timeouts = count_timeouts
         self._lock = lock
+        self._watch_battery_mode = watch_battery_mode
         self._timeouts = 0
         self._failed: frozenset[str] = frozenset()
+        self._inconsistent = False
 
     @property
     def serial(self) -> str:
@@ -67,6 +85,9 @@ class SungrowCoordinator(DataUpdateCoordinator[UpdateReport]):
         return str(self.config_entry.data[CONF_SERIAL])
 
     async def _async_update_data(self) -> UpdateReport:
+        if self._lock is not None and self._lock.locked() and self.data is not None:
+            _LOGGER.debug("%s poll skipped: a control call is in progress", self.kind)
+            return self.data
         try:
             if self._lock is not None:
                 async with self._lock:
@@ -75,7 +96,7 @@ class SungrowCoordinator(DataUpdateCoordinator[UpdateReport]):
                 report = await self._poll()
         except UnsupportedModelError as err:
             raise ConfigEntryError(str(err)) from err
-        except ModbusTimeoutError as err:
+        except (ModbusTimeoutError, ModbusConnectionError) as err:
             if self._count_timeouts:
                 self._timeouts += 1
                 if self._timeouts >= STUCK_LINK_TIMEOUTS:
@@ -87,7 +108,7 @@ class SungrowCoordinator(DataUpdateCoordinator[UpdateReport]):
                     await self.device.modbus_unit.disconnect()
                     self._timeouts = 0
             raise UpdateFailed(str(err)) from err
-        except ModbusError as err:
+        except (ModbusError, SungrowError) as err:
             raise UpdateFailed(str(err)) from err
         self._timeouts = 0
         if not report.updated:
@@ -100,11 +121,35 @@ class SungrowCoordinator(DataUpdateCoordinator[UpdateReport]):
         for name in sorted(self._failed - report.failed.keys()):
             _LOGGER.info("%s reads again", name)
         self._failed = frozenset(report.failed)
+        if self._watch_battery_mode:
+            self._log_battery_mode_transition()
         return report
+
+    def _log_battery_mode_transition(self) -> None:
+        """Warn once when the settings stop adding up, and once when they do."""
+        inconsistent = self.device.effective_battery_mode is BatteryMode.INCONSISTENT
+        if inconsistent and not self._inconsistent:
+            settings = self.device.settings
+            _LOGGER.warning(
+                "The battery settings are inconsistent (EMS mode %s, command %s, "
+                "running state %s); a register may not be served",
+                settings.ems_mode.name.lower() if settings.ems_mode else None,
+                settings.charge_command.name.lower()
+                if settings.charge_command
+                else None,
+                self.device.flows.running_state,
+            )
+        elif self._inconsistent and not inconsistent:
+            _LOGGER.info("The battery settings are consistent again")
+        self._inconsistent = inconsistent
 
     @callback
     def async_apply_snapshot(self, *names: str) -> None:
-        """Publish values the control layer just read back, without a poll."""
+        """Publish values the control layer just read back, without a poll.
+
+        The report's timestamp moves to now for the named components, so
+        freshness checks see the read-back, not the last poll.
+        """
         if self.data is None:
             return
         refreshed = set(names)
@@ -112,6 +157,7 @@ class SungrowCoordinator(DataUpdateCoordinator[UpdateReport]):
             self.data,
             updated=sorted(set(self.data.updated) | refreshed),
             failed={k: v for k, v in self.data.failed.items() if k not in refreshed},
+            at=time.monotonic(),
         )
         self.async_set_updated_data(report)
 
@@ -122,16 +168,17 @@ class SungrowCoordinator(DataUpdateCoordinator[UpdateReport]):
         identity = device.identity
         model = device.model
         firmware = device.firmware
+        sw_version = (
+            firmware.inverter_firmware
+            if firmware is not None and firmware.inverter_firmware
+            else identity.arm_version
+        )
         return DeviceInfo(
             identifiers={(DOMAIN, self.serial)},
+            name=f"{MANUFACTURER} {model.name}" if model is not None else MANUFACTURER,
             manufacturer=MANUFACTURER,
             model=model.name if model is not None else None,
             model_id=f"0x{model.code:04X}" if model is not None else None,
             serial_number=self.serial,
-            sw_version=(
-                firmware.inverter_firmware
-                if firmware is not None and firmware.inverter_firmware
-                else identity.arm_version
-            ),
-            hw_version=identity.protocol_version_text,
+            sw_version=sw_version or None,
         )

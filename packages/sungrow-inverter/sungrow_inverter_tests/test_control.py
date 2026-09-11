@@ -424,10 +424,10 @@ async def test_start_and_stop_write_the_command_without_read_back(
         (2, 0xAA, 1200, 1200, BatteryMode.FORCED_CHARGE),
         (2, 0xBB, 1200, 1200, BatteryMode.FORCED_DISCHARGE),
         (2, 0xCC, 1200, 1200, BatteryMode.FORCED_STOP),
-        (2, 0x11, 1200, 1200, BatteryMode.UNKNOWN),
+        (2, 0x11, 1200, 1200, BatteryMode.INCONSISTENT),
         (3, 0xCC, 1200, 1200, BatteryMode.EXTERNAL_EMS),
         (4, 0xCC, 1200, 1200, BatteryMode.VPP),
-        (0, 0xCC, 0xFFFF, 1200, BatteryMode.UNKNOWN),  # limit not implemented
+        (0, 0xCC, 0xFFFF, 1200, BatteryMode.INCONSISTENT),  # limit not implemented
     ],
 )
 async def test_effective_mode_table(
@@ -457,8 +457,9 @@ async def test_self_consumption_is_doubted_when_the_running_state_disagrees(
     unit.input[12999] = 0x0800  # running in compulsory mode
     await inv.async_update_realtime()
     assert inv.settings.ems_mode is EmsMode.SELF_CONSUMPTION
-    assert mode(inv) is BatteryMode.UNKNOWN
-    assert "may not be served" in caplog.text
+    assert mode(inv) is BatteryMode.INCONSISTENT
+    assert mode(inv) is BatteryMode.INCONSISTENT
+    assert caplog.text == ""  # read on every state write: never logs
 
 
 async def test_grace_is_armed_only_by_an_ems_write(
@@ -466,16 +467,16 @@ async def test_grace_is_armed_only_by_an_ems_write(
 ) -> None:
     unit.input[12999] = 0x0800
     await inv.async_update_realtime()
-    assert mode(inv) is BatteryMode.UNKNOWN
+    assert mode(inv) is BatteryMode.INCONSISTENT
     await inv.battery_control.set_pv_limitation(True)  # not an EMS write
-    assert mode(inv) is BatteryMode.UNKNOWN
+    assert mode(inv) is BatteryMode.INCONSISTENT
 
 
 async def test_running_state_lag_after_our_own_write_is_tolerated(
     inv: SungrowInverter, unit: MockModbusUnit
 ) -> None:
     """Live, the running state stayed "compulsory mode" for a few seconds
-    after leaving forced mode; that must not read as unknown."""
+    after leaving forced mode; that must not read as inconsistent."""
     await inv.battery_control.apply(
         DesiredState(BatteryMode.FORCED_CHARGE, power_w=1000)
     )
@@ -484,7 +485,7 @@ async def test_running_state_lag_after_our_own_write_is_tolerated(
     await inv.async_update_realtime()  # running state still lags
     assert mode(inv) is BatteryMode.SELF_CONSUMPTION
     inv.battery_control._ems_written_at -= 120  # type: ignore[operator]
-    assert mode(inv) is BatteryMode.UNKNOWN  # the lag has outlived the grace
+    assert mode(inv) is BatteryMode.INCONSISTENT  # the lag has outlived the grace
 
 
 # -- review fixes: direction flips, doubted EMS word, failure prefixes ---------
@@ -585,7 +586,7 @@ async def test_a_doubted_ems_word_is_written_regardless(
     """The dongle says EMS 0 but the inverter runs in compulsory mode."""
     unit.input[12999] = 0x0800
     await inv.async_update_realtime()
-    assert mode(inv) is BatteryMode.UNKNOWN
+    assert mode(inv) is BatteryMode.INCONSISTENT
     planned = inv.battery_control.plan(DesiredState(BatteryMode.SELF_CONSUMPTION))
     assert [(p.field, p.skip) for p in planned] == [
         ("max_charge_power", True),

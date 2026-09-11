@@ -14,7 +14,7 @@ from sungrow_inverter import UpdateReport
 from . import SungrowConfigEntry
 from .const import CONF_INCLUDE_REGISTER_DUMP, CONF_SERIAL, SERIAL_ADDRESS, SERIAL_WORDS
 
-TO_REDACT = {CONF_HOST, CONF_SERIAL, "unique_id", "title"}
+TO_REDACT = {CONF_HOST, CONF_SERIAL}
 
 
 def _report(report: UpdateReport | None) -> dict[str, Any] | None:
@@ -73,7 +73,10 @@ async def async_get_config_entry_diagnostics(
     }
     if entry.options.get(CONF_INCLUDE_REGISTER_DUMP, True):
         try:
-            registers = await device.async_read_raw()
+            # A raw read also refreshes the device's stored values, which a
+            # control call in progress relies on: take its lock.
+            async with device.battery_control.lock:
+                registers = await device.async_read_raw()
         except ModbusError as err:
             data["registers"] = {"error": str(err)}
         else:

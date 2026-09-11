@@ -20,6 +20,8 @@ from . import SungrowConfigEntry
 from .const import REALTIME, SETTINGS
 from .entity import SungrowEntity, SungrowEntityDescription
 
+PARALLEL_UPDATES = 0
+
 OFF_GRID_STATES = frozenset(
     {
         InverterState.OFF_GRID,
@@ -87,7 +89,7 @@ BINARY_SENSORS: tuple[SungrowBinarySensorDescription, ...] = (
     SungrowBinarySensorDescription(
         key="grid_connected",
         translation_key="grid_connected",
-        report_name="flows",
+        report_name=("flows", "ac_dc"),
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         is_on_fn=_grid_connected,
     ),

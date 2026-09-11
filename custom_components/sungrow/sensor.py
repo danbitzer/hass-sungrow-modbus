@@ -39,6 +39,8 @@ from . import SungrowConfigEntry
 from .const import REALTIME, SETTINGS
 from .entity import SungrowEntity, SungrowEntityDescription
 
+PARALLEL_UPDATES = 0
+
 type ValueFn = Callable[[SungrowInverter], StateType]
 
 
@@ -103,6 +105,7 @@ def _power(key: str, report: str, fn: ValueFn, **kw: Any) -> SungrowSensorDescri
         device_class=SensorDeviceClass.POWER,
         native_unit_of_measurement=UnitOfPower.WATT,
         state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
         value_fn=fn,
         **kw,
     )
@@ -136,7 +139,9 @@ def _current(key: str, report: str, fn: ValueFn, **kw: Any) -> SungrowSensorDesc
     )
 
 
-def _energy(key: str, fn: ValueFn, *, total: bool) -> SungrowSensorDescription:
+def _energy(
+    key: str, fn: ValueFn, *, total: bool, enabled: bool = True
+) -> SungrowSensorDescription:
     return SungrowSensorDescription(
         key=key,
         translation_key=key,
@@ -148,6 +153,7 @@ def _energy(key: str, fn: ValueFn, *, total: bool) -> SungrowSensorDescription:
         if total
         else SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=1,
+        entity_registry_enabled_default=enabled,
         value_fn=fn,
     )
 
@@ -343,7 +349,7 @@ SENSORS: tuple[SungrowSensorDescription, ...] = (
     SungrowSensorDescription(
         key="battery_mode",
         translation_key="battery_mode",
-        report_name="settings",
+        report_name=("settings", "battery_limits"),
         poll=SETTINGS,
         device_class=SensorDeviceClass.ENUM,
         options=[mode.value for mode in BatteryMode],
@@ -361,7 +367,7 @@ SENSORS: tuple[SungrowSensorDescription, ...] = (
         poll=SETTINGS,
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=1,
+        suggested_display_precision=0,
         value_fn=lambda d: d.energy.self_consumption_today,
     ),
     # -- energy (settings poll, restored) --------------------------------------
@@ -407,7 +413,14 @@ SENSORS: tuple[SungrowSensorDescription, ...] = (
         lambda d: d.energy.total_battery_discharge,
         total=True,
     ),
-    _energy("daily_imported_energy", lambda d: d.energy.daily_import, total=False),
+    # The daily grid counters (regs 13036, 13045) never move on an SH15T
+    # (P063) while their totals do; off by default until a firmware serves them.
+    _energy(
+        "daily_imported_energy",
+        lambda d: d.energy.daily_import,
+        total=False,
+        enabled=False,
+    ),
     _energy("total_imported_energy", lambda d: d.energy.total_import, total=True),
     _energy(
         "daily_battery_charge", lambda d: d.energy.daily_battery_charge, total=False
@@ -415,7 +428,12 @@ SENSORS: tuple[SungrowSensorDescription, ...] = (
     _energy(
         "total_battery_charge", lambda d: d.energy.total_battery_charge, total=True
     ),
-    _energy("daily_exported_energy", lambda d: d.energy.daily_export, total=False),
+    _energy(
+        "daily_exported_energy",
+        lambda d: d.energy.daily_export,
+        total=False,
+        enabled=False,
+    ),
     _energy("total_exported_energy", lambda d: d.energy.total_export, total=True),
     _energy(
         "daily_pv_generation_battery_discharge",
@@ -428,38 +446,12 @@ SENSORS: tuple[SungrowSensorDescription, ...] = (
         total=True,
     ),
     # -- diagnostics: settings and ratings mirrors ----------------------------
-    _diag(
-        "export_power_limit",
-        "settings",
-        lambda d: d.settings.export_limit,
-        device_class=SensorDeviceClass.POWER,
-        native_unit_of_measurement=UnitOfPower.WATT,
-    ),
+    # (the writable limits are number entities, not mirrored here)
     _diag(
         "feed_in_limitation_ratio",
         "settings",
         lambda d: d.settings.feed_in_ratio,
         native_unit_of_measurement=PERCENTAGE,
-    ),
-    _diag(
-        "active_power_limitation_ratio",
-        "settings",
-        lambda d: d.settings.active_power_limit_ratio,
-        native_unit_of_measurement=PERCENTAGE,
-    ),
-    _diag(
-        "battery_max_charge_power",
-        "battery_limits",
-        lambda d: d.battery_limits.max_charge_power,
-        device_class=SensorDeviceClass.POWER,
-        native_unit_of_measurement=UnitOfPower.WATT,
-    ),
-    _diag(
-        "battery_max_discharge_power",
-        "battery_limits",
-        lambda d: d.battery_limits.max_discharge_power,
-        device_class=SensorDeviceClass.POWER,
-        native_unit_of_measurement=UnitOfPower.WATT,
     ),
     _diag(
         "battery_charging_start_power",
@@ -656,19 +648,18 @@ class SungrowTotalSensor(SungrowEntity, RestoreSensor):
         super()._handle_coordinator_update()
 
     def _process_data(self) -> None:
-        name = self.entity_description.report_name
-        data = self.coordinator.data
-        if data is not None and name is not None and name not in data.updated:
+        if self.coordinator.data is not None and not self._components_updated():
             return  # the component did not refresh; keep the last value
         value = self.entity_description.value_fn(self.device)
         if value is None:
             return
         last = self._attr_native_value
         if (
-            self.entity_description.state_class is SensorStateClass.TOTAL_INCREASING
-            and isinstance(last, (int, float))
+            isinstance(last, (int, float))
             and isinstance(value, (int, float))
             and last * 0.99 <= value < last
         ):
-            return  # a tiny dip is a firmware quirk, not a reset
+            # A tiny dip is a firmware quirk, not a reset: a lifetime
+            # counter never decreases, and a daily one resets to 0.
+            return
         self._attr_native_value = value

@@ -158,7 +158,8 @@ class BatteryMode(StrEnum):
     FORCED_STOP = "forced_stop"
     EXTERNAL_EMS = "external_ems"
     VPP = "vpp"
-    UNKNOWN = "unknown"
+    INCONSISTENT = "inconsistent"
+    """The settings do not add up to any mode (or a register is unserved)."""
 
 
 DESIRED_BATTERY_MODES: frozenset[BatteryMode] = frozenset(

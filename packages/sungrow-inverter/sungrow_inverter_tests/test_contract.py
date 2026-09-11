@@ -77,7 +77,7 @@ def test_every_field_docstring_cites_its_register(path: Path) -> None:
 
 def test_desired_modes_are_the_first_five_battery_modes() -> None:
     assert DESIRED_BATTERY_MODES == frozenset(list(BatteryMode)[:6])
-    assert BatteryMode.UNKNOWN not in DESIRED_BATTERY_MODES
+    assert BatteryMode.INCONSISTENT not in DESIRED_BATTERY_MODES
 
 
 def test_public_api_is_exported() -> None:
