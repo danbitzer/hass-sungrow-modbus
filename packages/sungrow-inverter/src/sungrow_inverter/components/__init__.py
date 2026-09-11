@@ -9,7 +9,7 @@ from .control import Control
 from .energy import Energy
 from .firmware import FirmwareInfo
 from .identity import Identity, Ratings
-from .realtime import AcDc, Backup, Flows, GridPhases, Meter, MeterPhases
+from .realtime import AcDc, Backup, Flows, GridPhases, Meter
 from .settings import AplShadow, BatteryLimits, Settings, StartPower
 
 __all__ = [
@@ -27,7 +27,6 @@ __all__ = [
     "GridPhases",
     "Identity",
     "Meter",
-    "MeterPhases",
     "Ratings",
     "Settings",
     "StartPower",

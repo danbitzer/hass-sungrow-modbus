@@ -68,7 +68,6 @@ async def test_first_update_runs_setup(inverter: SungrowInverter) -> None:
         "flows",
         "grid_phases",
         "meter",
-        "meter_phases",
         "backup",
         "battery",
         "battery_power",
@@ -102,7 +101,7 @@ async def test_refused_ratings_block_does_not_stop_setup(
     report = await inverter.async_update()
     assert report.ok and inverter.is_setup
     assert inverter.ratings is None
-    assert inverter.battery_max_power_w is None
+    assert inverter.battery_max_power_w == 15000  # falls back to the AC rating
     assert SungrowInverter(unit, battery_max_power_w=12000).battery_max_power_w == (
         12000
     )
@@ -153,18 +152,14 @@ async def test_refused_optional_components_are_dropped(
 ) -> None:
     unit.fail_read(13049, IllegalDataAddressError(), register_type="input")
     unit.fail_read(33148, IllegalDataAddressError())
-    unit.fail_read(5740, IllegalDataAddressError(), register_type="input")
     inverter = SungrowInverter(unit)
     report = await inverter.async_update()
     assert report.ok
     assert inverter.alarms is None
     assert inverter.start_power is None
-    assert inverter.meter_phases is None
     assert inverter.apl_shadow is not None
     assert "alarms" not in inverter.polled_components
     assert "start_power" not in inverter.polled_components
-    assert "meter_phases" not in inverter.polled_components
-    assert inverter.meter.meter_active_power == -1200  # documented block intact
 
 
 async def test_blank_firmware_strings_mean_no_firmware(
@@ -243,6 +238,12 @@ async def test_battery_max_power_defaults_to_bdc_rating(
     assert inverter.battery_max_power_w is None
     await inverter.async_update()
     assert inverter.battery_max_power_w == 15000
+    unit.input[5627] = 300  # a 30 kW BDC on a 15 kW unit: the AC rating caps it
+    await inverter.ratings.async_update()  # type: ignore[union-attr]
+    assert inverter.battery_max_power_w == 15000
+    unit.input[5627] = 100
+    await inverter.ratings.async_update()  # type: ignore[union-attr]
+    assert inverter.battery_max_power_w == 10000
     assert SungrowInverter(unit, battery_max_power_w=12000).battery_max_power_w == (
         12000
     )
@@ -284,7 +285,7 @@ async def test_collect_raw_fills_the_report_in_one_sweep(
     assert report.raw["input"][13022] == 655
     assert report.raw["holding"][33046] == 1200
     assert 4999 not in report.raw["input"]  # setup blocks are not re-read
-    assert len(unit.read_events) == 10 + 7
+    assert len(unit.read_events) == 9 + 7
     assert inverter.battery.battery_level == 65.5  # the fields refreshed too
     assert (await inverter.async_update()).raw is None
 
@@ -301,6 +302,23 @@ async def test_read_raw_covers_every_polled_register(
     assert list(raw["input"]) == sorted(raw["input"])
     assert 12999 not in raw["holding"]  # the control register is never read
     assert raw["input"][5638] == 4480  # ratings block included
+
+
+async def test_refresh_reads_only_the_named_components(
+    unit: MockModbusUnit, inverter: SungrowInverter
+) -> None:
+    await inverter.async_update()
+    unit.read_events.clear()
+    fired: list[str] = []
+    inverter.settings.add_update_listener(lambda: fired.append("settings"))
+    inverter.energy.add_update_listener(lambda: fired.append("energy"))
+    report = await inverter.async_refresh("settings", "battery_limits")
+    assert report.updated == ["settings", "battery_limits"]
+    assert [e.address for e in unit.read_events] == [13017, 33046]
+    assert fired == ["settings"]
+    assert inverter.last_refresh("settings") is not None
+    with pytest.raises(ValueError, match="identity"):
+        await inverter.async_refresh("identity")
 
 
 async def test_read_raw_leaves_out_a_failing_component(
@@ -344,40 +362,59 @@ async def test_committed_fixture_decodes(
 async def test_live_capture_decodes_as_the_mkaiser_entities_showed(
     mock_modbus_unit: MockModbusUnit,
 ) -> None:
-    """The SH15T capture (firmware P063, WiNet-S V300) against HA at the time."""
+    """The SH15T capture (firmware P063, WiNet-S V300) against HA at the time.
+
+    Captured under the current ranges; live values are the moment's, the
+    static ones matched the mkaiser entities exactly.
+    """
     mock_modbus_unit.load_raw(load_fixture("sh15t_p063.json"))
     inverter = SungrowInverter(mock_modbus_unit)
     assert (await inverter.async_update()).ok
     assert inverter.identity.protocol_version_text == "V1.1.7"
     assert inverter.identity.arm_version == "ARM_PEARL-H_V11_V01_A"
+    assert inverter.identity.dsp_version == "MDSP_PEARL-H_V11_V01_A"
     assert inverter.identity.nominal_power == 15000
     assert inverter.identity.output_type is OutputType.THREE_PHASE_4_WIRE
     assert inverter.ratings is not None
     assert inverter.ratings.bdc_rated_power == 30000  # twice the AC rating
+    assert inverter.ratings.export_limit_max == 15000
     assert inverter.ratings.battery_capacity == 44.8
-    assert inverter.ratings.bms_max_charge_current == 12
+    assert inverter.ratings.bms_max_discharge_current == 30
+    assert inverter.battery_max_power_w == 15000  # capped by the AC rating
     assert inverter.firmware is not None
     assert inverter.firmware.inverter_firmware == "PEARL-H_B000.V000.P063"
+    assert inverter.firmware.comm_module_firmware == "WINET-SV300.001.03.P029"
     assert inverter.flows.running_state is InverterState.DISPATCH_RUNNING
     assert inverter.flows.running_state_raw == 0x8200
     assert inverter.flows.power_flow == (
         PowerFlow.BATTERY_DISCHARGING | PowerFlow.LOAD_POSITIVE
     )
-    assert inverter.flows.load_power == 262
-    assert inverter.flows.export_power == 6
-    assert inverter.meter.meter_active_power == -6  # negative = selling
-    assert inverter.battery_power.battery_power == 322  # positive = discharging
-    assert inverter.battery.battery_level == 98.7
-    assert inverter.battery.battery_voltage == 465.3
-    assert inverter.ac_dc.mppt1_voltage == 411.9
+    assert inverter.flows.load_power == 839
+    assert inverter.flows.export_power == 10
+    assert inverter.meter.meter_active_power == -10  # negative = selling
+    assert inverter.meter.meter_phase_b_active_power == 320
+    assert inverter.battery_power.battery_power == 928  # positive = discharging
+    assert inverter.battery.battery_level == 97.8
+    assert inverter.battery.battery_voltage == 464.2
+    assert inverter.battery.battery_current == 2.0
+    assert inverter.ac_dc.mppt1_voltage == 99.4
+    assert inverter.ac_dc.mppt3_voltage == 100.6
     assert inverter.ac_dc.total_dc_power == 0
-    assert inverter.ac_dc.reactive_power == 2734
+    assert inverter.ac_dc.reactive_power == 2686
     assert inverter.ac_dc.grid_frequency == 50.01
-    assert inverter.grid_phases.total_active_power == 217
-    assert inverter.backup.total_backup_power == 260
+    assert inverter.grid_phases.total_active_power == 829
+    assert inverter.grid_phases.phase_a_current == 4.8  # energy block re-read it
+    assert inverter.backup.total_backup_power == 851
+    assert inverter.backup.backup_phase_b_power == 618
+    assert inverter.backup.backup_phase_a_voltage == 245.5
+    assert inverter.backup.backup_frequency == 49.99
     assert inverter.energy.total_pv_generation == 5009.6
     assert inverter.energy.daily_pv_generation == 28.5
     assert inverter.energy.total_import == 95.1
+    assert inverter.energy.total_export == 2491.6
+    assert inverter.energy.total_battery_charge == 2170.3
+    assert inverter.energy.inverter_temperature == 42.0
+    assert inverter.energy.self_consumption_today == 30.8
     assert inverter.settings.ems_mode is EmsMode.SELF_CONSUMPTION
     assert inverter.settings.charge_command is ChargeCommand.DISCHARGE  # leftover
     assert inverter.settings.forced_power == 10000
@@ -385,14 +422,42 @@ async def test_live_capture_decodes_as_the_mkaiser_entities_showed(
     assert inverter.settings.export_limit_enabled is True
     assert inverter.settings.pv_power_limitation is False
     assert inverter.settings.backup_reserve_soc == 5
+    assert inverter.settings.max_soc == 100.0 and inverter.settings.min_soc == 5.0
     assert inverter.battery_limits.max_charge_power == 10000
+    assert inverter.battery_limits.max_discharge_power == 10000
     assert inverter.start_power is not None  # served, but as 0xFFFF
     assert inverter.start_power.charging_start_power is None
     assert inverter.apl_shadow is not None
     assert inverter.apl_shadow.apl_shutdown_at_zero is True
     assert inverter.alarms is not None and inverter.alarms.any_active is False
+    # the reserved registers inside the settings block: 0xFFFF, except two
+    raw = load_fixture("sh15t_p063.json")["holding"]
+    assert raw[13059] == 0xFFFF and raw[13075] == 0xFFFF and raw[13090] == 0xFFFF
+    assert raw[13052] == 0 and raw[13079] == 0
 
 
 def test_seed_helpers_are_deterministic() -> None:
     assert sh15t_input() == sh15t_input()
     assert sh15t_holding() == sh15t_holding()
+
+
+@pytest.mark.parametrize("name", ["sh15t_seed.json", "sh15t_p063.json"])
+async def test_fixture_covers_every_planned_block(
+    mock_modbus_unit: MockModbusUnit, name: str
+) -> None:
+    """A fixture captured under narrower ranges would replay holes as 0.
+
+    Every address of every block the current plan reads must be in the dump,
+    so a replay decodes exactly what the device answered.
+    """
+    raw = load_fixture(name)
+    mock_modbus_unit.load_raw(raw)
+    inverter = SungrowInverter(mock_modbus_unit)
+    assert (await inverter.async_update()).ok
+    missing: list[str] = []
+    for event in mock_modbus_unit.read_events:
+        space = "holding" if event.register_type == "holding" else "input"
+        for address in range(event.address, event.address + event.count):
+            if address not in raw[space]:
+                missing.append(f"{space}:{address}")
+    assert missing == []

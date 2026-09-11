@@ -1,6 +1,6 @@
 # hass-sungrow-modbus — implementation plan
 
-Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library, reviewed and fixed); **M2 done** (live read-only run on the SH15T: every value matched the mkaiser entities; ranges widened per the WiNet-S block survey; capture in `tests/fixtures/sh15t_p063.json`; 149 tests). Next: M3 `BatteryControl`.
+Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library, reviewed and fixed); **M2 done and reviewed** (live read-only run on the SH15T: every modelled value matched the mkaiser entities; ranges widened per the WiNet-S block survey with the M1 map kept as a per-component fallback; capture in `tests/fixtures/sh15t_p063.json`; `scripts/survey.py`). Next: M3 `BatteryControl` (`inverter.battery_control`).
 Repository is private for now, so the HACS validation job is advisory
 (`continue-on-error`) until it is made public.
 
@@ -191,10 +191,19 @@ Read-only, from the Mac, while the mkaiser YAML hub kept polling:
   sweep when HA happened to be quiet).
 - Ranges are now: input `(4951, 5034) (5213, 5241) (5600, 5638) (5722, 5745)
   (12999, 13078) (13249, 13293)`; holding `(13017, 13099) (31212, 31212)
-  (33046, 33149)`; `MAX_SPAN = 100`. A full sweep is 24 reads (setup 7,
-  realtime 10, slow 7), ~2 s.
+  (33046, 33149)`; `MAX_SPAN = 100`. A full live sweep is 22 reads (setup 6,
+  realtime 9, slow 7; 25 with `--raw`), ~2 s — it was 36 under the M1 map.
+  The M1 map is kept as `NARROW_*_RANGES`: a component whose merged block
+  is refused (exception 2) is re-planned against it once, so a stricter
+  dongle degrades to more reads, not to a dead component.
+- **mkaiser's meter phase voltages/currents (5741-5746) are not served**:
+  a read starting at 5740 is refused, and inside a 5722×24 block the six
+  words read 0 (the mkaiser entities are `unavailable` on the same system).
+  Dropped from the library. The documented backup voltages and frequency
+  (regs 5731-5734) *are* served and were added to `Backup`.
 - Values matched the mkaiser entities at the same moment for every field
-  (static ones identical; live ones within their poll drift). Notes: BDC
+  the library models (static ones identical; live ones within their poll
+  drift). Notes: BDC
   rated power (reg 5628) reports **30 000 W on a 15 kW SH15T**, so the
   `battery_max_power_w` default must not be the BDC rating alone — the
   integration option should default to `min(bdc_rated_power, nominal_power)`
@@ -204,6 +213,12 @@ Read-only, from the Mac, while the mkaiser YAML hub kept polling:
   `charge_command = discharge`, `forced_power = 10000` under
   `ems_mode = self_consumption` — inert, exactly the case the guarded write
   layer must tolerate; 13049/13050 are genuinely served (13050 read 0xBB).
+  The reserved registers inside 13017-13099 read 0xFFFF **except 13052 and
+  13079, which read 0** — so "0 for unserved" is not uniform on this dongle
+  and a 0 is never proof either way; M3 must not treat `ems_mode == 0` as
+  evidence of anything without the `running_state` cross-check.
+- `scripts/survey.py` (read-only) reproduces the survey; a user on other
+  firmware sends its table when a block the library reads is refused.
 - CLI lesson: `add_connection_args(connections=(("tcp", None), ("serial",
   "rtu")))` makes the helper default tcp to **RTU-over-TCP** (one named
   framer becomes the default for all transports); a WiNet-S never answers
@@ -493,7 +508,8 @@ class SungrowInverter:
     def last_refresh(self, name) -> float | None              # time.monotonic() of the last successful read — the M3 freshness guard reads this
     battery: Battery                                          # the measurement component
     battery_control: BatteryControl;  effective_battery_mode: BatteryMode | None   # M3 (named battery_control: `battery` is taken)
-    battery_max_power_w: int | None  # option override, else ratings.bdc_rated_power; None = unknown → SettingsUnavailableError in M3, never 0
+    battery_max_power_w: int | None  # option, else min(nominal_power, bdc_rated_power); None = unknown → SettingsUnavailableError in M3, never 0
+    async def async_refresh(self, *names, collect_raw=False) -> UpdateReport   # e.g. ("settings", "battery_limits") before/after a write; updates last_refresh
 ```
 `_async_setup()` on first update: read `identity`, apply `restrict_fields`
 for the MPPT count, probe optionals (`IllegalDataAddress`/`IllegalFunction` →
@@ -641,6 +657,8 @@ M3 adds `--apply MODE` behind an explicit confirmation flag.
 ```
 
 ### 7.2 Config flow
+
+The config flow (or its options) carries **Battery max power (W)** as an explicit field, as mkaiser's package does with `sungrow_modbus_battery_max_power`: default `min(nominal_power, bdc_rated_power)`, range 10 W to that value, step 10. It is the restore target of `self_consumption`; Dan's is 10 000 W today (he set it; the inverter can do 15 kW).
 - `step_user`: `connection_type` (tcp | serial), `host`, `port` (502),
   `unit_id` (1); serial → `step_serial` (device, baudrate 9600, parity N,
   stopbits 1, bytesize 8) → `ModbusSerialParams`. `create_modbus_params(data)`

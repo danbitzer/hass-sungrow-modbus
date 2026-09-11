@@ -95,7 +95,7 @@ async def test_writes_are_retried_too(unit: MockModbusUnit) -> None:
 async def test_a_flaky_block_does_not_fail_the_component(
     unit: MockModbusUnit,
 ) -> None:
-    flaky = FlakyUnit(unit, ServerDeviceFailureError(), failures=1, address=13017)
+    flaky = FlakyUnit(unit, ServerDeviceFailureError(), failures=1)
     retrying = RetryingUnit(flaky, sleep=Sleeps())
     settings = Settings(retrying)
     await settings.async_update()

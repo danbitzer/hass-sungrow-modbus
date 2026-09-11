@@ -8,6 +8,15 @@
   the capture is committed as `tests/fixtures/sh15t_p063.json` with the
   serial replaced; the CLI names socket framing explicitly (the helper's
   default was RTU-over-TCP, which a WiNet-S never answers).
+- M2 review fixes: mkaiser's undocumented meter phase registers dropped (a
+  WiNet-S refuses them and answers 0 inside a wider block); documented backup
+  voltages and frequency added to `Backup`; the M1 narrow map kept as a
+  per-component fallback when a merged block is refused; `async_refresh`
+  for a named subset of components; `battery_max_power_w` defaults to the
+  lower of nominal and BDC power; `scripts/survey.py` committed; the CLI is
+  TCP-only, never overwrites poll words in a dump and survives a hiccup on
+  the setup re-reads; the fixture recaptured under the widened ranges with a
+  test that every planned block address is present.
 - Library: SH-T model gate, typed components for every polled register block
   (identity, firmware, AC/DC, flows, grid phases, meter, backup, battery,
   energy, alarms, settings, battery limits, start power, APL shadow, control),

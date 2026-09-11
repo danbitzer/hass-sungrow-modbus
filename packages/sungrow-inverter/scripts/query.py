@@ -38,10 +38,11 @@ from sungrow_inverter.report import Raw
 
 STAND_IN_SERIAL = "A123456789"
 MASK = "**********"
-# Plain Modbus TCP for a WiNet-S; RTU framing only over a serial line. Naming
-# the socket framer explicitly matters: with only "rtu" named, the helper
-# would default tcp to RTU-over-TCP, which the dongle never answers.
-CONNECTIONS = (("tcp", "socket"), ("serial", "rtu"))
+# Plain Modbus TCP only: a WiNet-S speaks socket framing and the Home Assistant
+# integration never opens its own link, so no serial option is offered. Naming
+# the framer matters: an unnamed one lets the helper pick another transport's
+# default (RTU-over-TCP, which the dongle never answers).
+CONNECTIONS = (("tcp", "socket"),)
 
 
 def scrub_serial(raw: Raw) -> None:
@@ -147,13 +148,18 @@ async def main() -> int:
             if component is not None:
                 print_block(component, name, mask=mask)
         # The setup blocks were read before the poll; three more reads put
-        # their raw words into the dump too.
+        # their raw words into the dump too. A hiccup here must not lose the
+        # sweep that already succeeded.
         setup_raw: list[Raw] = []
         if args.raw is not None:
             for name in ("identity", "ratings", "firmware"):
                 component = getattr(inverter, name)
-                if component is not None:
+                if component is None:
+                    continue
+                try:
                     setup_raw.append(await component.async_read_raw(notify=False))
+                except ModbusError as err:
+                    print(f"WARNING {name} not in the dump: {err}", file=sys.stderr)
     finally:
         await conn.close()
 
@@ -164,7 +170,11 @@ async def main() -> int:
         raw: Raw = report.raw or {}
         for read in setup_raw:
             for space, values in read.items():
-                raw.setdefault(space, {}).update(values)
+                # Never overwrite a poll word: the ratings block spans the
+                # battery current at 5630, read seconds earlier by the poll.
+                target = raw.setdefault(space, {})
+                for address, word in values.items():
+                    target.setdefault(address, word)
         raw = {space: dict(sorted(values.items())) for space, values in raw.items()}
         if not args.keep_serial:
             scrub_serial(raw)

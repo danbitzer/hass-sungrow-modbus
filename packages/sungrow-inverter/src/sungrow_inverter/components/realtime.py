@@ -95,7 +95,10 @@ class Meter(SungrowInput):
     """The smart meter at the grid connection (Table 3, regs 5601-5608).
 
     Every value reads None (sentinel 0x7FFFFFFF) without a smart meter, and
-    the per-phase values also on a single-phase meter.
+    the per-phase values also on a single-phase meter. mkaiser's meter phase
+    voltages and currents (5741-5746, undocumented) are not modelled: a
+    WiNet-S refuses a read starting there and answers 0 for them inside a
+    wider block.
     """
 
     meter_active_power = int32(5600, word_order="little", nan=S32_NAN, unit="W")
@@ -108,30 +111,8 @@ class Meter(SungrowInput):
     """Meter phase C active power (reg 5607)."""
 
 
-class MeterPhases(SungrowInput):
-    """Meter phase voltages and currents (regs 5741-5746).
-
-    Undocumented: absent from the protocol document, taken from mkaiser's
-    package. Kept apart from ``Meter`` so a firmware that refuses them
-    cannot take the documented meter powers down; optional at setup.
-    """
-
-    meter_phase_a_voltage = gauge(5740, 0.1, nan=S16_NAN, unit="V")
-    """Meter phase A voltage (reg 5741)."""
-    meter_phase_b_voltage = gauge(5741, 0.1, nan=S16_NAN, unit="V")
-    """Meter phase B voltage (reg 5742)."""
-    meter_phase_c_voltage = gauge(5742, 0.1, nan=S16_NAN, unit="V")
-    """Meter phase C voltage (reg 5743)."""
-    meter_phase_a_current = gauge(5743, 0.01, signed=False, nan=U16_NAN, unit="A")
-    """Meter phase A current (reg 5744)."""
-    meter_phase_b_current = gauge(5744, 0.01, signed=False, nan=U16_NAN, unit="A")
-    """Meter phase B current (reg 5745)."""
-    meter_phase_c_current = gauge(5745, 0.01, signed=False, nan=U16_NAN, unit="A")
-    """Meter phase C current (reg 5746)."""
-
-
 class Backup(SungrowInput):
-    """The backup (off-grid) port."""
+    """The backup (off-grid) port (Table 3, regs 5723-5734)."""
 
     backup_phase_a_power = integer(5722, unit="W")
     """Phase A backup power (reg 5723)."""
@@ -141,3 +122,11 @@ class Backup(SungrowInput):
     """Phase C backup power (reg 5725)."""
     total_backup_power = int32(5725, word_order="little", unit="W")
     """Total backup power (reg 5726)."""
+    backup_phase_a_voltage = gauge(5730, 0.1, signed=False, nan=U16_NAN, unit="V")
+    """Phase A backup voltage (reg 5731)."""
+    backup_phase_b_voltage = gauge(5731, 0.1, signed=False, nan=U16_NAN, unit="V")
+    """Phase B backup voltage (reg 5732)."""
+    backup_phase_c_voltage = gauge(5732, 0.1, signed=False, nan=U16_NAN, unit="V")
+    """Phase C backup voltage (reg 5733)."""
+    backup_frequency = gauge(5733, 0.01, signed=False, nan=U16_NAN, unit="Hz")
+    """Backup frequency (reg 5734)."""

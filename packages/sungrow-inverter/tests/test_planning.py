@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from modbus_connection import IllegalDataAddressError
 from modbus_connection.mock import MockModbusUnit, ReadEvent
 from modbus_connection.model import Component, RegisterField
 
@@ -21,12 +22,13 @@ from sungrow_inverter.components import (
     GridPhases,
     Identity,
     Meter,
-    MeterPhases,
     Ratings,
     Settings,
     StartPower,
 )
 from sungrow_inverter.const import MAX_SPAN
+
+from .conftest import SERIAL
 
 INPUT_COMPONENTS = (
     Identity,
@@ -36,7 +38,6 @@ INPUT_COMPONENTS = (
     Flows,
     GridPhases,
     Meter,
-    MeterPhases,
     Backup,
     Battery,
     BatteryPower,
@@ -99,14 +100,19 @@ async def test_realtime_poll_costs_a_known_number_of_reads(
     await inverter.async_update()  # setup + first poll
     unit.read_events.clear()
     await inverter.async_update_realtime()
-    blocks = unit.read_events
-    assert all(b.register_type == "input" for b in blocks)
-    # ac_dc 2 (5010-5034, 5241), flows 1, grid_phases 1, meter 1,
-    # meter_phases 1, backup 1, battery 2 (5630, 13019-13024), battery_power 1
-    assert len(blocks) == 10
-    assert ReadEvent("input", 5010, 25) in blocks
-    assert ReadEvent("input", 12999, 12) in blocks
-    assert ReadEvent("input", 5213, 2) in blocks
+    # One entry per component, in poll order; a new field that silently
+    # widens a neighbour's block shows up here.
+    assert unit.read_events == [
+        ReadEvent("input", 5010, 25),  # ac_dc
+        ReadEvent("input", 5241, 1),
+        ReadEvent("input", 12999, 12),  # flows
+        ReadEvent("input", 13030, 5),  # grid_phases
+        ReadEvent("input", 5600, 8),  # meter
+        ReadEvent("input", 5722, 12),  # backup
+        ReadEvent("input", 5630, 1),  # battery
+        ReadEvent("input", 13019, 6),
+        ReadEvent("input", 5213, 2),  # battery_power
+    ]
 
 
 async def test_settings_poll_costs_a_known_number_of_reads(
@@ -115,17 +121,15 @@ async def test_settings_poll_costs_a_known_number_of_reads(
     await inverter.async_update()
     unit.read_events.clear()
     await inverter.async_update_settings()
-    blocks = unit.read_events
-    holding = [b for b in blocks if b.register_type == "holding"]
-    inputs = [b for b in blocks if b.register_type == "input"]
-    # settings 1 (13017-13099 in one frame), battery_limits 1, start_power 1,
-    # apl_shadow 1
-    assert len(holding) == 4
-    assert ReadEvent("holding", 13017, 83) in holding
-    # energy 2 (5002-5007, 13001-13046), alarms 1
-    assert len(inputs) == 3
-    assert ReadEvent("input", 13001, 46) in inputs
-    assert ReadEvent("input", 13049, 30) in inputs
+    assert unit.read_events == [
+        ReadEvent("holding", 13017, 83),  # settings, one frame
+        ReadEvent("holding", 33046, 2),  # battery_limits
+        ReadEvent("input", 5002, 6),  # energy
+        ReadEvent("input", 13001, 46),
+        ReadEvent("holding", 33148, 2),  # start_power
+        ReadEvent("holding", 31212, 1),  # apl_shadow
+        ReadEvent("input", 13049, 30),  # alarms
+    ]
 
 
 async def test_two_mppt_model_never_reads_mppt3(unit: MockModbusUnit) -> None:
@@ -151,9 +155,57 @@ async def test_setup_costs_a_known_number_of_reads(
     inverter: SungrowInverter, unit: MockModbusUnit
 ) -> None:
     await inverter.async_update_realtime()
-    setup = unit.read_events[:-10]
-    # identity 1 (4951-5001), ratings 1 (5621-5638), firmware 1, then the
-    # optional probes: meter_phases 1, start_power 1, apl_shadow 1, alarms 1
-    assert len(setup) == 7
-    assert ReadEvent("input", 4951, 51) in setup
-    assert ReadEvent("input", 5621, 18) in setup
+    assert unit.read_events[:-9] == [
+        ReadEvent("input", 4951, 51),  # identity
+        ReadEvent("input", 5621, 18),  # ratings
+        ReadEvent("input", 13249, 45),  # firmware
+        ReadEvent("holding", 33148, 2),  # optional probes
+        ReadEvent("holding", 31212, 1),
+        ReadEvent("input", 13049, 30),
+    ]
+
+
+async def test_a_refused_merged_block_falls_back_to_the_narrow_map(
+    unit: MockModbusUnit,
+) -> None:
+    """A link that refuses a read spanning a hole still works, per component."""
+    unit.fail_read(4985, IllegalDataAddressError(), register_type="input")  # identity
+    unit.fail_read(13029, IllegalDataAddressError(), register_type="input")  # energy
+    unit.fail_read(13060, IllegalDataAddressError())  # settings
+    inverter = SungrowInverter(unit)
+    report = await inverter.async_update()
+    assert report.ok
+    assert inverter.identity.serial == SERIAL
+    assert inverter.energy.total_export == 6000.0
+    assert inverter.settings.backup_reserve_soc == 20
+    events = unit.read_events
+    assert ReadEvent("input", 4951, 51) in events  # tried wide first
+    assert ReadEvent("input", 4951, 32) in events  # then narrow
+    assert ReadEvent("input", 4989, 13) in events
+    assert ReadEvent("holding", 13017, 83) in events
+    assert ReadEvent("holding", 13049, 3) in events
+    assert ReadEvent("holding", 13099, 1) in events
+    # the fallback sticks: the next poll goes straight to the narrow blocks
+    unit.read_events.clear()
+    await inverter.async_update_settings()
+    assert ReadEvent("holding", 13017, 83) not in unit.read_events
+    assert ReadEvent("holding", 13017, 1) in unit.read_events
+    # other components are untouched
+    assert ReadEvent("input", 13049, 30) in unit.read_events
+
+
+async def test_fallback_keeps_the_mppt_restriction(unit: MockModbusUnit) -> None:
+    unit.input[4999] = 0x0E23  # SH10T, two MPPT
+    unit.fail_read(5025, IllegalDataAddressError(), register_type="input")
+    inverter = SungrowInverter(unit)
+    assert (await inverter.async_update()).ok
+    assert inverter.ac_dc.mppt3_voltage is None
+    assert inverter.ac_dc.mppt1_voltage == 380.0
+    assert inverter.ac_dc.grid_frequency == 50.01
+
+
+async def test_a_refusal_on_the_narrow_map_is_real(unit: MockModbusUnit) -> None:
+    unit.fail_read(13001, IllegalDataAddressError(), register_type="input")
+    inverter = SungrowInverter(unit)
+    report = await inverter.async_update()
+    assert isinstance(report.failed["energy"], IllegalDataAddressError)

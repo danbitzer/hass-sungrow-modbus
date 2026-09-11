@@ -31,11 +31,11 @@ from .components import (
     GridPhases,
     Identity,
     Meter,
-    MeterPhases,
     Ratings,
     Settings,
     StartPower,
 )
+from .const import NARROW_HOLDING_RANGES, NARROW_INPUT_RANGES
 from .exceptions import SungrowError
 from .models import ShtModel, model_for
 from .report import Raw, UpdateReport
@@ -50,7 +50,6 @@ _REALTIME: tuple[str, ...] = (
     "flows",
     "grid_phases",
     "meter",
-    "meter_phases",
     "backup",
     "battery",
     "battery_power",
@@ -63,17 +62,62 @@ _SLOW: tuple[str, ...] = (
     "apl_shadow",
     "alarms",
 )
-_OPTIONAL: tuple[str, ...] = ("meter_phases", "start_power", "apl_shadow", "alarms")
+_OPTIONAL: tuple[str, ...] = ("start_power", "apl_shadow", "alarms")
 """Polled components a firmware may refuse; a refusal at setup drops them."""
 
 DEFAULT_FENCE_POWER_W = 10
 """The battery power limit (W) that counts as "fenced": the register's minimum."""
 
 
+def _narrow(component: Component) -> bool:
+    """Re-plan a component against the map split at every documented hole.
+
+    Returns False when it already uses it. The plan is rebuilt through
+    ``restrict_fields`` with the fields it already reads: with nothing
+    dropped the framework keeps the ranges just assigned and only
+    invalidates the cached plan.
+    """
+    narrow = (
+        NARROW_INPUT_RANGES
+        if component.register_space == "input"
+        else NARROW_HOLDING_RANGES
+    )
+    if component.register_ranges is narrow:
+        return False
+    component.register_ranges = narrow
+    component.restrict_fields(list(component.resolved_fields))
+    return True
+
+
+async def _read(component: Component, *, collect_raw: bool = False) -> Raw | None:
+    """Read one component; on a refused merged block, once more on the narrow map.
+
+    A WiNet-S serves the documented holes inside a block; a stricter link
+    may refuse a read that spans one, and then the M1 map, split at every
+    hole, still works. A refusal on the narrow map is a real one.
+    """
+    try:
+        if collect_raw:
+            return await component.async_read_raw(notify=False)
+        await component.async_update(notify=False)
+        return None
+    except IllegalDataAddressError:
+        if not _narrow(component):
+            raise
+        _LOGGER.info(
+            "%s: a merged block was refused; re-planned on the narrow map",
+            type(component).__name__,
+        )
+        if collect_raw:
+            return await component.async_read_raw(notify=False)
+        await component.async_update(notify=False)
+        return None
+
+
 async def _optional[C: Component](component: C) -> C | None:
     """Read an optional sub-system; None if this device does not serve it."""
     try:
-        await component.async_update(notify=False)
+        await _read(component)
     except (IllegalDataAddressError, IllegalFunctionError):
         return None
     return component
@@ -125,7 +169,6 @@ class SungrowInverter:
         self.flows = Flows(unit)
         self.grid_phases = GridPhases(unit)
         self.meter = Meter(unit)
-        self.meter_phases: MeterPhases | None = MeterPhases(unit)
         self.backup = Backup(unit)
         self.battery = Battery(unit)
         self.battery_power = BatteryPower(unit)
@@ -187,7 +230,7 @@ class SungrowInverter:
         was unreachable then. Listeners are not fired: the poll that follows
         does that for what it refreshes.
         """
-        await self.identity.async_update(notify=False)
+        await _read(self.identity)
         self.model = model_for(_device_type_code(self.identity))
         self._refreshed["identity"] = time.monotonic()
 
@@ -232,10 +275,7 @@ class SungrowInverter:
         for name in names:
             component: Component = getattr(self, name)
             try:
-                if collect_raw:
-                    read = await component.async_read_raw(notify=False)
-                else:
-                    await component.async_update(notify=False)
+                read = await _read(component, collect_raw=collect_raw)
             except ModbusConnectionError:
                 raise  # the link is down; the rest would only wait for timeouts
             except ModbusTimeoutError as err:
@@ -247,10 +287,15 @@ class SungrowInverter:
             else:
                 report.updated.append(name)
                 self._refreshed[name] = time.monotonic()
-                if collect_raw:
+                if read is not None:
                     raw = report.raw if report.raw is not None else {}
                     for space, values in read.items():
-                        raw.setdefault(space, {}).update(values)
+                        # First read wins where blocks overlap (energy spans
+                        # the flows, battery and grid-phase registers), so the
+                        # dump matches the values the poll decoded.
+                        target = raw.setdefault(space, {})
+                        for address, word in values.items():
+                            target.setdefault(address, word)
                     report.raw = raw
         return report
 
@@ -292,6 +337,23 @@ class SungrowInverter:
         self._notify(report)
         return report
 
+    async def async_refresh(
+        self, *names: str, collect_raw: bool = False
+    ) -> UpdateReport:
+        """Refresh only the named components, e.g. ``settings`` and
+        ``battery_limits`` before and after a write.
+
+        Raises ``ValueError`` for a name that is not a polled component.
+        """
+        await self._ensure_setup()
+        polled = self.polled_components
+        unknown = [n for n in names if n not in polled]
+        if unknown:
+            raise ValueError(f"not polled components: {', '.join(unknown)}")
+        report = await self._async_poll(names, UpdateReport(), collect_raw=collect_raw)
+        self._notify(report)
+        return report
+
     async def async_read_raw(self) -> Raw:
         """Every register this device reads, undecoded — for diagnostics.
 
@@ -318,17 +380,22 @@ class SungrowInverter:
 
     @property
     def battery_max_power_w(self) -> int | None:
-        """The battery power limit to restore: the option, else BDC rated power.
+        """The battery power limit the write layer restores.
 
-        None until setup has read the ratings, or when the inverter does not
-        report a BDC rating; a caller that needs a write target must treat
-        None as "unknown", not as zero.
+        The ``battery_max_power_w`` option when given — the integration makes
+        it an explicit setting, as mkaiser's package does — else the lower of
+        the BDC rating and the nominal AC power (an SH15T reports a 30 kW BDC
+        on a 15 kW unit). None until setup has read the identity, or when
+        neither rating is reported; a caller that needs a write target must
+        treat None as "unknown", never as zero.
         """
         if self._battery_max_power_w is not None:
             return self._battery_max_power_w
-        if self.ratings is None:
-            return None
-        return _as_int(self.ratings.bdc_rated_power)
+        candidates = [_as_int(self.identity.nominal_power)]
+        if self.ratings is not None:
+            candidates.append(_as_int(self.ratings.bdc_rated_power))
+        known = [c for c in candidates if c is not None]
+        return min(known) if known else None
 
     @property
     def polled_components(self) -> tuple[str, ...]:

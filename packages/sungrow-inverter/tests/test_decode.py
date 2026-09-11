@@ -26,7 +26,6 @@ from sungrow_inverter.components import (
     GridPhases,
     Identity,
     Meter,
-    MeterPhases,
     Ratings,
     Settings,
     StartPower,
@@ -165,20 +164,6 @@ async def test_meter(unit: MockModbusUnit) -> None:
     assert meter.meter_phase_b_active_power == -400
 
 
-async def test_meter_phases(unit: MockModbusUnit) -> None:
-    phases = MeterPhases(unit)
-    await phases.async_update()
-    assert phases.meter_phase_a_voltage == 240.1
-    assert phases.meter_phase_c_current == 1.68
-
-
-async def test_meter_voltage_sentinel(unit: MockModbusUnit) -> None:
-    unit.input[5740] = [0x7FFF, 0x7FFF, 0x7FFF]
-    phases = MeterPhases(unit)
-    await phases.async_update()
-    assert phases.meter_phase_a_voltage is None
-
-
 async def test_no_smart_meter_reads_none_not_two_gigawatts(
     unit: MockModbusUnit,
 ) -> None:
@@ -211,6 +196,9 @@ async def test_backup(unit: MockModbusUnit) -> None:
     await backup.async_update()
     assert backup.backup_phase_a_power == 0
     assert backup.total_backup_power == 0
+    assert backup.backup_phase_a_voltage == 241.7
+    assert backup.backup_phase_c_voltage == 243.4
+    assert backup.backup_frequency == 50.0
 
 
 async def test_battery(unit: MockModbusUnit) -> None:
