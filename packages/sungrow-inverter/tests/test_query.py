@@ -41,18 +41,6 @@ async def test_scrub_serial_replaces_all_ten_words(
     assert inverter.identity.serial == SERIAL
 
 
-async def test_setup_blocks_re_encode_to_the_words_read(
-    unit: MockModbusUnit, query: ModuleType
-) -> None:
-    inverter = SungrowInverter(unit)
-    report = await inverter.async_update(collect_raw=True)
-    assert report.raw is not None
-    merged = dict(report.raw)
-    for name in ("identity", "ratings", "firmware"):
-        merged = query._merge_setup_block(merged, getattr(inverter, name))
-    assert merged == await inverter.async_read_raw()
-
-
 def test_help_runs_without_a_backend() -> None:
     import subprocess
 
@@ -61,3 +49,28 @@ def test_help_runs_without_a_backend() -> None:
     )
     assert result.returncode == 0
     assert "--raw FILE" in result.stdout and "--show-serial" in result.stdout
+
+
+def test_tcp_defaults_to_socket_framing(query: ModuleType) -> None:
+    """A WiNet-S speaks plain Modbus TCP; RTU-over-TCP never answers.
+
+    Naming only the serial framer made the helper default tcp to rtu too.
+    """
+    import argparse
+
+    from modbus_connection.cli_helper import add_connection_args
+
+    parser = argparse.ArgumentParser()
+    add_connection_args(parser, connections=query.CONNECTIONS)
+    args = parser.parse_args(["host.invalid"])
+    assert args.transport == "tcp"
+    # No --framer given: connect_from_args passes none and the backend's
+    # connect_tcp default applies, which must be socket framing.
+    import inspect
+
+    from modbus_connection import tmodbus
+
+    assert args.framer in (None, "socket")
+    assert inspect.signature(tmodbus.connect_tcp).parameters["framer"].default == (
+        "socket"
+    )

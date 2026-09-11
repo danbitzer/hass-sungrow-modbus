@@ -25,7 +25,7 @@ from modbus_connection.cli_helper import (
     field_rows,
 )
 from modbus_connection.encode import encode_string
-from modbus_connection.model import Component, RegisterField
+from modbus_connection.model import Component
 
 from sungrow_inverter import (
     RetryingUnit,
@@ -38,6 +38,10 @@ from sungrow_inverter.report import Raw
 
 STAND_IN_SERIAL = "A123456789"
 MASK = "**********"
+# Plain Modbus TCP for a WiNet-S; RTU framing only over a serial line. Naming
+# the socket framer explicitly matters: with only "rtu" named, the helper
+# would default tcp to RTU-over-TCP, which the dongle never answers.
+CONNECTIONS = (("tcp", "socket"), ("serial", "rtu"))
 
 
 def scrub_serial(raw: Raw) -> None:
@@ -69,7 +73,7 @@ def _parse() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Query a Sungrow SH-T inverter and print every value (read-only)."
     )
-    add_connection_args(parser, connections=(("tcp", None), ("serial", "rtu")))
+    add_connection_args(parser, connections=CONNECTIONS)
     parser.add_argument(
         "--unit",
         type=int,
@@ -142,6 +146,14 @@ async def main() -> int:
             component = getattr(inverter, name)
             if component is not None:
                 print_block(component, name, mask=mask)
+        # The setup blocks were read before the poll; three more reads put
+        # their raw words into the dump too.
+        setup_raw: list[Raw] = []
+        if args.raw is not None:
+            for name in ("identity", "ratings", "firmware"):
+                component = getattr(inverter, name)
+                if component is not None:
+                    setup_raw.append(await component.async_read_raw(notify=False))
     finally:
         await conn.close()
 
@@ -150,35 +162,16 @@ async def main() -> int:
         print(f"FAILED {name}: {failure}")
     if args.raw is not None:
         raw: Raw = report.raw or {}
-        # The setup blocks were read before the poll; add them to the dump.
-        for name in ("identity", "ratings", "firmware"):
-            component = getattr(inverter, name)
-            if component is not None:
-                raw = _merge_setup_block(raw, component)
+        for read in setup_raw:
+            for space, values in read.items():
+                raw.setdefault(space, {}).update(values)
+        raw = {space: dict(sorted(values.items())) for space, values in raw.items()}
         if not args.keep_serial:
             scrub_serial(raw)
         args.raw.parent.mkdir(parents=True, exist_ok=True)
         args.raw.write_text(json.dumps(raw, indent=1) + "\n")
         print(f"raw dump written to {args.raw}")
     return 0 if report.ok else 3
-
-
-def _merge_setup_block(raw: Raw, component: Component) -> Raw:
-    """Re-encode a setup block's decoded values into the raw map.
-
-    Setup reads happen before the poll and are not repeated; the words are
-    rebuilt from the decoded fields, which is exact for these integer and
-    string registers.
-    """
-    for name, resolved in component.resolved_fields.items():
-        value = getattr(component, name)
-        if value is None or not isinstance(resolved.field, RegisterField):
-            continue
-        words = resolved.field.encode(value)
-        space = raw.setdefault(resolved.space, {})
-        for offset, word in enumerate(words):
-            space[resolved.address + offset] = word
-    return raw
 
 
 if __name__ == "__main__":

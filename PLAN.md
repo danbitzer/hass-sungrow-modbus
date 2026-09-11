@@ -1,6 +1,6 @@
 # hass-sungrow-modbus — implementation plan
 
-Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library: enums, models, components, `SungrowInverter`, `RetryingUnit`, CLI; reviewed and fixed — 147 tests against the mock). Next: M2 live read-only run.
+Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library, reviewed and fixed); **M2 done** (live read-only run on the SH15T: every value matched the mkaiser entities; ranges widened per the WiNet-S block survey; capture in `tests/fixtures/sh15t_p063.json`; 149 tests). Next: M3 `BatteryControl`.
 Repository is private for now, so the HACS validation job is advisory
 (`continue-on-error`) until it is made public.
 
@@ -173,6 +173,41 @@ modbus-connection ≥4.10), so its measured findings transfer directly:
 - Identity block (input 4952–5002): protocol version, ARM/DSP strings, serial
   (4990, 10 regs), device type (5000), rated output (5001, ×100 W), output type
   (5002). Firmware strings at 13250+ (SH-T supported).
+
+### 3.3a WiNet-S block survey (M2, 2026-09-11, SH15T P063, WiNet-S firmware V300)
+
+Read-only, from the Mac, while the mkaiser YAML hub kept polling:
+
+- **Input reads answer any width up to 125** when the block starts on a
+  documented register: 4951×125, 12999×80, 5010×25 (across the 5021-5031
+  hole), 5007×14, 5600×39, 5722×24, 13249×45 all OK in 10-40 ms. Reserved
+  holes *inside* a block read 0. A read that **starts** on a reserved
+  address (5006, 5008, 13043, 13047, 13014) is refused with exception 2.
+- **Holding reads are slow (0.1-0.5 s) and answer exception 4 at random**
+  while HA polls — every failed read succeeded on a repeat, including the
+  start/stop register (12999 reads back 0xCF) and 13059 (0xFFFF). 13017×83
+  (the whole Table 4 block) and 33046×104 answer in one frame. Exception 4
+  is contention; `RetryingUnit` handles it (0 retries needed on a full
+  sweep when HA happened to be quiet).
+- Ranges are now: input `(4951, 5034) (5213, 5241) (5600, 5638) (5722, 5745)
+  (12999, 13078) (13249, 13293)`; holding `(13017, 13099) (31212, 31212)
+  (33046, 33149)`; `MAX_SPAN = 100`. A full sweep is 24 reads (setup 7,
+  realtime 10, slow 7), ~2 s.
+- Values matched the mkaiser entities at the same moment for every field
+  (static ones identical; live ones within their poll drift). Notes: BDC
+  rated power (reg 5628) reports **30 000 W on a 15 kW SH15T**, so the
+  `battery_max_power_w` default must not be the BDC rating alone — the
+  integration option should default to `min(bdc_rated_power, nominal_power)`
+  and Dan sets 12 000; start power 33148/33149 are served but read 0xFFFF
+  (mkaiser shows 655 350 W, the library shows None); protocol version
+  register says V1.1.7 on P063; the settings block showed a leftover
+  `charge_command = discharge`, `forced_power = 10000` under
+  `ems_mode = self_consumption` — inert, exactly the case the guarded write
+  layer must tolerate; 13049/13050 are genuinely served (13050 read 0xBB).
+- CLI lesson: `add_connection_args(connections=(("tcp", None), ("serial",
+  "rtu")))` makes the helper default tcp to **RTU-over-TCP** (one named
+  framer becomes the default for all transports); a WiNet-S never answers
+  that. Name the socket framer explicitly.
 
 ### 3.4 mkaiser's "things that will bite you", applied to this design
 
@@ -385,19 +420,18 @@ def model_for(code: int) -> ShtModel   # raises UnsupportedModelError(code, know
 config-flow error ("SH10RT (0x0E03) is not an SH-T inverter").
 
 ### 6.4 Components and readable ranges
-Conservative first cut split at every documented reserved hole; **M2 widens**
-any adjacent pair the WiNet-S proves it serves in one block. No
+M1 started from a conservative cut split at every documented reserved hole;
+M2 widened the ranges to the blocks the WiNet-S proved it serves (§3.3a). No
 `ComponentGroup` on the polling path (a refused block would fail the group).
 
 ```python
-INPUT_RANGES = ((4951, 4982), (4989, 5004), (5007, 5007), (5010, 5020), (5032, 5034),
-                (5213, 5214), (5241, 5241), (5600, 5607), (5621, 5622), (5627, 5627),
-                (5630, 5630), (5634, 5635), (5638, 5638), (5722, 5726), (5740, 5745),
-                (12999, 13028), (13030, 13042), (13044, 13046), (13049, 13078), (13249, 13293))
-HOLDING_RANGES = ((13017, 13017), (13049, 13051), (13057, 13058), (13073, 13074),
-                  (13086, 13089), (13099, 13099), (31212, 31212), (33046, 33047), (33148, 33149))
-class SungrowInput(Component):   register_space = "input";   register_ranges = INPUT_RANGES;   max_span = 64
-class SungrowHolding(Component): register_space = "holding"; register_ranges = HOLDING_RANGES; max_span = 64
+# Widened in M2 to what the WiNet-S survey (§3.3a) proved; the M1 first cut
+# split at every documented hole.
+INPUT_RANGES = ((4951, 5034), (5213, 5241), (5600, 5638), (5722, 5745),
+                (12999, 13078), (13249, 13293))
+HOLDING_RANGES = ((13017, 13099), (31212, 31212), (33046, 33149))
+class SungrowInput(Component):   register_space = "input";   register_ranges = INPUT_RANGES;   max_span = 100
+class SungrowHolding(Component): register_space = "holding"; register_ranges = HOLDING_RANGES; max_span = 100
 ```
 
 | Component | Space | Fields (addr → name) | Poll |

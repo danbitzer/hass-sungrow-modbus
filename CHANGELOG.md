@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- M2: live read-only run on an SH15T (firmware P063, WiNet-S V300) — every
+  value matched the mkaiser entities; readable ranges widened to the blocks
+  the dongle proved it serves (a full sweep is now 24 reads instead of 36);
+  the capture is committed as `tests/fixtures/sh15t_p063.json` with the
+  serial replaced; the CLI names socket framing explicitly (the helper's
+  default was RTU-over-TCP, which a WiNet-S never answers).
 - Library: SH-T model gate, typed components for every polled register block
   (identity, firmware, AC/DC, flows, grid phases, meter, backup, battery,
   energy, alarms, settings, battery limits, start power, APL shadow, control),

@@ -8,49 +8,43 @@ from __future__ import annotations
 
 from modbus_connection.model import Range
 
-MAX_SPAN = 64
-"""Widest block read this library asks for. A WiNet-S is safer below 125."""
+MAX_SPAN = 100
+"""Widest block read this library asks for.
+
+A WiNet-S (firmware V300) answered a 125-register input read in one frame;
+the widest block any component needs is the 83-register settings block.
+"""
 
 INPUT_RANGES: tuple[Range, ...] = (
-    (4951, 4982),  # protocol version, ARM + DSP certification strings
-    (4989, 5004),  # serial, device type, nominal power, output type, output energy
-    (5007, 5007),  # inside temperature
-    (5010, 5020),  # MPPT 1-3, total DC power, phase voltages
-    (5032, 5034),  # reactive power, power factor
-    (5213, 5214),  # battery power (S32)
-    (5241, 5241),  # grid frequency (0.01 Hz)
-    (5600, 5607),  # meter active power, total + per phase
-    (5621, 5622),  # feed-in limit min/max
-    (5627, 5627),  # BDC rated power
-    (5630, 5630),  # battery current
-    (5634, 5635),  # BMS max charge/discharge current
-    (5638, 5638),  # battery capacity, high precision
-    (5722, 5726),  # backup power per phase + total
-    (5740, 5745),  # meter voltages and currents
-    (12999, 13028),  # running state, power flow, energies, load/export, battery
-    (13030, 13042),  # phase currents, total active power, import, charge, DRM
-    (13044, 13046),  # export energy
-    (13049, 13078),  # alarm and fault words
+    (4951, 5034),  # identity, ratings, output energy, temperature, MPPT, AC
+    (5213, 5241),  # battery power ... grid frequency
+    (5600, 5638),  # meter powers, feed-in limits, BDC, battery current, BMS, capacity
+    (5722, 5745),  # backup power, meter voltages and currents
+    (12999, 13078),  # running state, power flow, energies, battery, alarms
     (13249, 13293),  # firmware strings
 )
-"""Input-register (FC04) addresses an SH-T answers, split at documented holes.
+"""Input-register (FC04) addresses an SH-T behind a WiNet-S answers.
 
-Conservative first cut; a live run may prove the WiNet-S serves adjacent
-ranges in one block, in which case they are merged.
+Surveyed on an SH15T (firmware P063, WiNet-S V300): every span above reads
+in one frame, including the documented reserved holes inside it (5005-5009,
+5021-5031, 13029, 13043, 13047-13048), which answer 0. A read that *starts*
+on a reserved address is refused with exception 2, so a range must start on
+a documented register — the planner starts every block on a field.
 """
 
 HOLDING_RANGES: tuple[Range, ...] = (
-    (13017, 13017),  # PV power limitation
-    (13049, 13051),  # EMS mode, charge command, forced power
-    (13057, 13058),  # max / min SoC
-    (13073, 13074),  # feed-in limit value, off-grid option
-    (13086, 13089),  # feed-in limit enable/ratio, active power limit enable/ratio
-    (13099, 13099),  # reserved SoC for backup
+    (13017, 13099),  # PV limitation ... reserved SoC for backup (Table 4)
     (31212, 31212),  # APL shutdown-at-zero shadow (undocumented)
-    (33046, 33047),  # max charge / discharge power
-    (33148, 33149),  # charging / discharging start power
+    (33046, 33149),  # max charge/discharge power ... start power
 )
-"""Holding-register (FC03) addresses this library reads."""
+"""Holding-register (FC03) addresses this library reads.
+
+Surveyed as above: 13017-13099 (83 registers) and 33046-33149 answer in one
+frame each; the reserved registers inside read 0xFFFF or 0. Holding reads
+are slow on a WiNet-S (0.1-0.3 s each) and answer exception 4 now and then
+while another client polls — that is contention, retried by
+``RetryingUnit``, not a refusal.
+"""
 
 AA = 0xAA
 """Enable / limit / charge word."""

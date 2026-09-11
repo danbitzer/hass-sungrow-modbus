@@ -11,7 +11,15 @@ from modbus_connection import (
 )
 from modbus_connection.mock import MockModbusUnit
 
-from sungrow_inverter import SungrowInverter, UnsupportedModelError
+from sungrow_inverter import (
+    ChargeCommand,
+    EmsMode,
+    InverterState,
+    OutputType,
+    PowerFlow,
+    SungrowInverter,
+    UnsupportedModelError,
+)
 
 from .conftest import SERIAL, load_fixture, sh15t_holding, sh15t_input
 
@@ -276,7 +284,7 @@ async def test_collect_raw_fills_the_report_in_one_sweep(
     assert report.raw["input"][13022] == 655
     assert report.raw["holding"][33046] == 1200
     assert 4999 not in report.raw["input"]  # setup blocks are not re-read
-    assert len(unit.read_events) == 11 + 15
+    assert len(unit.read_events) == 10 + 7
     assert inverter.battery.battery_level == 65.5  # the fields refreshed too
     assert (await inverter.async_update()).raw is None
 
@@ -321,7 +329,7 @@ async def test_raw_dump_replays_through_the_mock(
     assert inverter.settings.backup_reserve_soc == 20
 
 
-@pytest.mark.parametrize("name", ["sh15t_seed.json"])
+@pytest.mark.parametrize("name", ["sh15t_seed.json", "sh15t_p063.json"])
 async def test_committed_fixture_decodes(
     mock_modbus_unit: MockModbusUnit, name: str
 ) -> None:
@@ -331,6 +339,58 @@ async def test_committed_fixture_decodes(
     assert report.ok
     assert inverter.model is not None and inverter.model.name == "SH15T"
     assert inverter.identity.serial == SERIAL
+
+
+async def test_live_capture_decodes_as_the_mkaiser_entities_showed(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    """The SH15T capture (firmware P063, WiNet-S V300) against HA at the time."""
+    mock_modbus_unit.load_raw(load_fixture("sh15t_p063.json"))
+    inverter = SungrowInverter(mock_modbus_unit)
+    assert (await inverter.async_update()).ok
+    assert inverter.identity.protocol_version_text == "V1.1.7"
+    assert inverter.identity.arm_version == "ARM_PEARL-H_V11_V01_A"
+    assert inverter.identity.nominal_power == 15000
+    assert inverter.identity.output_type is OutputType.THREE_PHASE_4_WIRE
+    assert inverter.ratings is not None
+    assert inverter.ratings.bdc_rated_power == 30000  # twice the AC rating
+    assert inverter.ratings.battery_capacity == 44.8
+    assert inverter.ratings.bms_max_charge_current == 12
+    assert inverter.firmware is not None
+    assert inverter.firmware.inverter_firmware == "PEARL-H_B000.V000.P063"
+    assert inverter.flows.running_state is InverterState.DISPATCH_RUNNING
+    assert inverter.flows.running_state_raw == 0x8200
+    assert inverter.flows.power_flow == (
+        PowerFlow.BATTERY_DISCHARGING | PowerFlow.LOAD_POSITIVE
+    )
+    assert inverter.flows.load_power == 262
+    assert inverter.flows.export_power == 6
+    assert inverter.meter.meter_active_power == -6  # negative = selling
+    assert inverter.battery_power.battery_power == 322  # positive = discharging
+    assert inverter.battery.battery_level == 98.7
+    assert inverter.battery.battery_voltage == 465.3
+    assert inverter.ac_dc.mppt1_voltage == 411.9
+    assert inverter.ac_dc.total_dc_power == 0
+    assert inverter.ac_dc.reactive_power == 2734
+    assert inverter.ac_dc.grid_frequency == 50.01
+    assert inverter.grid_phases.total_active_power == 217
+    assert inverter.backup.total_backup_power == 260
+    assert inverter.energy.total_pv_generation == 5009.6
+    assert inverter.energy.daily_pv_generation == 28.5
+    assert inverter.energy.total_import == 95.1
+    assert inverter.settings.ems_mode is EmsMode.SELF_CONSUMPTION
+    assert inverter.settings.charge_command is ChargeCommand.DISCHARGE  # leftover
+    assert inverter.settings.forced_power == 10000
+    assert inverter.settings.export_limit == 15000
+    assert inverter.settings.export_limit_enabled is True
+    assert inverter.settings.pv_power_limitation is False
+    assert inverter.settings.backup_reserve_soc == 5
+    assert inverter.battery_limits.max_charge_power == 10000
+    assert inverter.start_power is not None  # served, but as 0xFFFF
+    assert inverter.start_power.charging_start_power is None
+    assert inverter.apl_shadow is not None
+    assert inverter.apl_shadow.apl_shutdown_at_zero is True
+    assert inverter.alarms is not None and inverter.alarms.any_active is False
 
 
 def test_seed_helpers_are_deterministic() -> None:

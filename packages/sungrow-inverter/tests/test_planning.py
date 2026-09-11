@@ -101,10 +101,10 @@ async def test_realtime_poll_costs_a_known_number_of_reads(
     await inverter.async_update_realtime()
     blocks = unit.read_events
     assert all(b.register_type == "input" for b in blocks)
-    # ac_dc 3, flows 1, grid_phases 1, meter 1, meter_phases 1, backup 1,
-    # battery 2, battery_power 1
-    assert len(blocks) == 11
-    assert ReadEvent("input", 5010, 11) in blocks
+    # ac_dc 2 (5010-5034, 5241), flows 1, grid_phases 1, meter 1,
+    # meter_phases 1, backup 1, battery 2 (5630, 13019-13024), battery_power 1
+    assert len(blocks) == 10
+    assert ReadEvent("input", 5010, 25) in blocks
     assert ReadEvent("input", 12999, 12) in blocks
     assert ReadEvent("input", 5213, 2) in blocks
 
@@ -118,11 +118,13 @@ async def test_settings_poll_costs_a_known_number_of_reads(
     blocks = unit.read_events
     holding = [b for b in blocks if b.register_type == "holding"]
     inputs = [b for b in blocks if b.register_type == "input"]
-    # settings 6 (one per holding range it touches), battery_limits 1,
-    # start_power 1, apl_shadow 1
-    assert len(holding) == 9
-    # energy 5 (5002-5004, 5007, 13001-13028, 13035-13041, 13044-13046), alarms 1
-    assert len(inputs) == 6
+    # settings 1 (13017-13099 in one frame), battery_limits 1, start_power 1,
+    # apl_shadow 1
+    assert len(holding) == 4
+    assert ReadEvent("holding", 13017, 83) in holding
+    # energy 2 (5002-5007, 13001-13046), alarms 1
+    assert len(inputs) == 3
+    assert ReadEvent("input", 13001, 46) in inputs
     assert ReadEvent("input", 13049, 30) in inputs
 
 
@@ -149,9 +151,9 @@ async def test_setup_costs_a_known_number_of_reads(
     inverter: SungrowInverter, unit: MockModbusUnit
 ) -> None:
     await inverter.async_update_realtime()
-    setup = unit.read_events[:-11]
-    # identity 2, ratings 4, firmware 1, then the optional probes:
-    # meter_phases 1, start_power 1, apl_shadow 1, alarms 1
-    assert len(setup) == 11
-    assert ReadEvent("input", 4951, 32) in setup
-    assert ReadEvent("input", 4989, 13) in setup
+    setup = unit.read_events[:-10]
+    # identity 1 (4951-5001), ratings 1 (5621-5638), firmware 1, then the
+    # optional probes: meter_phases 1, start_power 1, apl_shadow 1, alarms 1
+    assert len(setup) == 7
+    assert ReadEvent("input", 4951, 51) in setup
+    assert ReadEvent("input", 5621, 18) in setup
