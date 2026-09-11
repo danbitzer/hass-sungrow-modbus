@@ -27,7 +27,7 @@ class Identity(SungrowInput):
     """Serial number (reg 4990)."""
     device_type_code = integer(4999, signed=False)
     """Device type code (reg 5000), see Appendix 1."""
-    nominal_power = gauge(5000, 100, signed=False, unit="W")
+    nominal_power = gauge(5000, 100, signed=False, nan=U16_NAN, unit="W")
     """Nominal output power (reg 5001), 0.1 kW per count."""
     output_type = enum(5001, OutputType)
     """Output type (reg 5002)."""

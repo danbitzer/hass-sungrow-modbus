@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- M3: `BatteryControl` — battery modes (self_consumption, no_charge, hold,
+  forced_charge, forced_discharge), export limit and PV limitation as
+  guarded writes: only registers that differ are written, in an order that
+  leaves a sane state if one fails, read back and compared afterwards;
+  `effective_mode()` reports what the settings imply; `scripts/control.py`
+  drives it (plan-only without `--yes`). Verified live on an SH15T.
 - M2: live read-only run on an SH15T (firmware P063, WiNet-S V300) — every
   value matched the mkaiser entities; readable ranges widened to the blocks
   the dongle proved it serves (a full sweep is now 24 reads instead of 36);

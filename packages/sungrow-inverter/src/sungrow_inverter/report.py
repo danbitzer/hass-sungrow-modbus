@@ -1,9 +1,10 @@
-"""What one poll managed to refresh."""
+"""What one poll managed to refresh, and what one control call wrote."""
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 from modbus_connection import ModbusError
 
@@ -26,3 +27,47 @@ class UpdateReport:
     def ok(self) -> bool:
         """Whether every component polled refreshed."""
         return not self.failed
+
+
+@dataclass(frozen=True)
+class WriteRecord:
+    """One register write the control layer made."""
+
+    component: str
+    field: str
+    previous: Any
+    value: Any
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "component": self.component,
+            "field": self.field,
+            "previous": _plain(self.previous),
+            "value": _plain(self.value),
+        }
+
+
+@dataclass
+class WriteReport:
+    """What one control call did: the writes, the writes it did not need,
+    and whether the read-back matched."""
+
+    action: str
+    writes: list[WriteRecord] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    """``component.field`` targets already at their value."""
+    verified: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        """A JSON-safe rendering, the shape a service response returns."""
+        return {
+            "action": self.action,
+            "writes": [w.as_dict() for w in self.writes],
+            "skipped": list(self.skipped),
+            "verified": self.verified,
+        }
+
+
+def _plain(value: Any) -> Any:
+    """Enums by their value, so the rendering needs no library types."""
+    return getattr(value, "value", value)

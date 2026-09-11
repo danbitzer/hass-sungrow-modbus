@@ -1,6 +1,6 @@
 # hass-sungrow-modbus — implementation plan
 
-Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library, reviewed and fixed); **M2 done and reviewed** (live read-only run on the SH15T: every modelled value matched the mkaiser entities; ranges widened per the WiNet-S block survey with the M1 map kept as a per-component fallback; capture in `tests/fixtures/sh15t_p063.json`; `scripts/survey.py`). Next: M3 `BatteryControl` (`inverter.battery_control`).
+Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library, reviewed and fixed); **M2 done and reviewed** (live read-only run on the SH15T: every modelled value matched the mkaiser entities; ranges widened per the WiNet-S block survey with the M1 map kept as a per-component fallback; capture in `tests/fixtures/sh15t_p063.json`; `scripts/survey.py`). **M3 done** (`inverter.battery_control`: guarded, ordered, verified writes; live on the SH15T 2026-09-11 evening with the Numbat actuator disabled — every step wrote only what differed, read back true, and the mkaiser HA entities followed; `scripts/control.py`). Next: M4 integration.
 Repository is private for now, so the HACS validation job is advisory
 (`continue-on-error`) until it is made public.
 
@@ -634,6 +634,28 @@ class BatteryControl:
 value}], "skipped": [...], "verified"}` — returned as the action response.
 `set_export_limit` warns when `feed_in_ratio` is neither `None` nor 100.0 (the
 spec says the ratio register 13088 takes precedence over the W value).
+
+### 6.7a M3 live results (SH15T, 2026-09-11, actuator disabled, night)
+
+| Call | Writes | Verified | Observed |
+|---|---|---|---|
+| `apply self_consumption` (already there) | none | — | three targets skipped |
+| `apply no_charge` | 33047 → raw 1 | yes | HA `number.battery_max_charge_power` read 10.0 within seconds |
+| `apply self_consumption` | 33047 → raw 1000 | yes | |
+| `apply hold` | 33047, 33048 → raw 1 | yes | battery power 296 W → 0 W on the next read |
+| `apply forced_charge 2000` from hold | limits restored, 13052 = 2000, 13051 = 0xAA, 13050 = 2 | yes | battery −2000 W within ~5 s; running state 0x0800 compulsory |
+| `apply forced_discharge 1000` | 13052 = 1000, 13051 = 0xBB | yes | +999 W; mode/limits skipped |
+| `apply self_consumption` | 13050 = 0 only | yes | running state stayed compulsory for a few seconds → `effective_mode` said unknown for one poll (now a 60 s grace after our own write) |
+| `set_export_limit 0` / `15000` | 13074 only (enable already on) | yes | |
+| `set_pv_limitation True` / `False` | 13018 = 0xAA / 0x55 | yes | night, no PV effect to observe |
+
+Each call cost 32-35 reads (a full sweep for the CLI's before/after) and 0-4
+retries. The leftover `forced_power` is now 1000 W (was 10000): inert under
+self-consumption and rewritten before every forced mode. Raw 0 on 33047 was
+not probed: Numbat's blueprint has written 0 there for months, so the
+register accepts it; the fence stays 10 W. `start`/`stop` were not exercised
+(Dan trialled them by hand on 2026-09-10) and the CLI deliberately does not
+offer them.
 
 ### 6.8 CLI (`scripts/query.py`)
 `uv run --package sungrow-inverter python packages/sungrow-inverter/scripts/query.py $SUNGROW_HOST --unit 1 [--raw .testdata/raw.json]`

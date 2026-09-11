@@ -36,6 +36,8 @@ from .components import (
     StartPower,
 )
 from .const import NARROW_HOLDING_RANGES, NARROW_INPUT_RANGES
+from .control import BatteryControl
+from .enums import BatteryMode
 from .exceptions import SungrowError
 from .models import ShtModel, model_for
 from .report import Raw, UpdateReport
@@ -183,6 +185,9 @@ class SungrowInverter:
 
         # Write-only.
         self.control = Control(unit)
+
+        self.battery_control = BatteryControl(self)
+        """Guarded, ordered, verified writes: battery mode, export and PV limits."""
 
         self._realtime: tuple[str, ...] | None = None
         self._slow: tuple[str, ...] = ()
@@ -396,6 +401,11 @@ class SungrowInverter:
             candidates.append(_as_int(self.ratings.bdc_rated_power))
         known = [c for c in candidates if c is not None]
         return min(known) if known else None
+
+    @property
+    def effective_battery_mode(self) -> BatteryMode | None:
+        """The battery mode the last-polled settings imply."""
+        return self.battery_control.effective_mode()
 
     @property
     def polled_components(self) -> tuple[str, ...]:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .const import HOLDING_RANGES, INPUT_RANGES
+from .control import BatteryControl, DesiredState
 from .enums import (
     DESIRED_BATTERY_MODES,
     GENERATING_STATES,
@@ -15,10 +16,18 @@ from .enums import (
     PowerFlow,
     StartStop,
 )
-from .exceptions import ControlError, SungrowError, UnsupportedModelError
+from .exceptions import (
+    ControlError,
+    PowerOutOfRangeError,
+    SettingsUnavailableError,
+    SungrowError,
+    UnsupportedModelError,
+    VerificationError,
+    WriteRejectedError,
+)
 from .inverter import DEFAULT_FENCE_POWER_W, ProbeResult, SungrowInverter
 from .models import OTHER_MODELS, SHT_MODELS, ShtModel, model_for
-from .report import UpdateReport
+from .report import UpdateReport, WriteRecord, WriteReport
 from .retry import RetryingUnit, RetryPolicy
 
 __version__ = "0.1.0a1"
@@ -32,22 +41,30 @@ __all__ = [
     "OTHER_MODELS",
     "RUNNING_STATES",
     "SHT_MODELS",
+    "BatteryControl",
     "BatteryMode",
     "ChargeCommand",
     "ControlError",
+    "DesiredState",
     "EmsMode",
     "InverterState",
     "OutputType",
     "PowerFlow",
+    "PowerOutOfRangeError",
     "ProbeResult",
     "RetryPolicy",
     "RetryingUnit",
+    "SettingsUnavailableError",
     "ShtModel",
     "StartStop",
     "SungrowError",
     "SungrowInverter",
     "UnsupportedModelError",
     "UpdateReport",
+    "VerificationError",
+    "WriteRecord",
+    "WriteRejectedError",
+    "WriteReport",
     "__version__",
     "model_for",
 ]
