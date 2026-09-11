@@ -83,4 +83,7 @@ def test_desired_modes_are_the_first_five_battery_modes() -> None:
 def test_public_api_is_exported() -> None:
     for name in sungrow_inverter.__all__:
         assert hasattr(sungrow_inverter, name), name
-    assert sungrow_inverter.__version__ == "0.1.0a1"
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    declared = re.search(r'^version = "(.+)"$', pyproject.read_text(), re.MULTILINE)
+    assert declared is not None
+    assert sungrow_inverter.__version__ == declared.group(1)
