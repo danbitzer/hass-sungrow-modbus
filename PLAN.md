@@ -1,8 +1,7 @@
 # hass-sungrow-modbus — implementation plan
 
 Status: 2026-09-11 — research complete; **M0 done** (skeleton, CI, guards); **M1 done** (library, reviewed and fixed); **M2 done and reviewed** (live read-only run on the SH15T: every modelled value matched the mkaiser entities; ranges widened per the WiNet-S block survey with the M1 map kept as a per-component fallback; capture in `tests/fixtures/sh15t_p063.json`; `scripts/survey.py`). **M3 done** (`inverter.battery_control`: guarded, ordered, verified writes; live on the SH15T 2026-09-11 evening with the Numbat actuator disabled — every step wrote only what differed, read back true, and the mkaiser HA entities followed; `scripts/control.py`). **M4 built and reviewed** (config flow, options, coordinators, sensor + binary_sensor, diagnostics, 35 integration tests against the live capture; TCP only — serial deferred; review fixes 2026-09-12: `BatteryMode.INCONSISTENT` replaces `unknown`, `effective_mode()` is silent and the settings coordinator logs the transition once, a settings poll yields to a control call instead of deadlocking, diagnostics reads under the control lock, availability keys on every component a value needs, the dip filter covers lifetime totals, the writable limits are no longer mirrored as sensors, explicit device name). Open: on the SH15T (P063) the daily grid counters 13036/13045 never move while their totals do, and 5003/5004 ("output energy") equals total export exactly — the two dailies ship disabled. Live install waits on Dan's decision (PyPI + trusted publishing, or bundle the library into the component) and a copy of `custom_components/sungrow` into Dan's `/config`. Next: M5 controls + actions.
-Repository is private for now, so the HACS validation job is advisory
-(`continue-on-error`) until it is made public.
+Repository went public 2026-09-12; the HACS validation job is required.
 
 ## 1. Context
 

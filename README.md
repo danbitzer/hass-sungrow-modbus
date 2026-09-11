@@ -60,8 +60,9 @@ Sungrow's protocol document; see `NOTICE.md`.
 The integration needs the `sungrow-sht-modbus` library from PyPI (the manifest
 pins the exact version) and Home Assistant 2026.9 or newer.
 
-1. Copy `custom_components/sungrow` into your Home Assistant `config/custom_components/`
-   (or add this repository as a custom repository in HACS once it is public).
+1. In HACS, add `https://github.com/danbitzer/hass-sungrow-modbus` as a custom
+   repository (category Integration) and download it; or copy
+   `custom_components/sungrow` into your Home Assistant `config/custom_components/`.
 2. Restart Home Assistant.
 3. Settings → Devices & services → Add integration → **Sungrow SH-T Hybrid
    Inverter**. Enter the WiNet-S host, port 502 and unit id 1. The flow reads
