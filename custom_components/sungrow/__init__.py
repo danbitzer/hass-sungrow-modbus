@@ -17,7 +17,7 @@ from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from sungrow_inverter import RetryingUnit, SungrowInverter
+from sungrow_inverter import RetryingUnit, RetryPolicy, SungrowInverter
 
 from .const import (
     CONF_BATTERY_MAX_POWER_W,
@@ -81,7 +81,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: SungrowConfigEntry) -> b
 
     battery_max_power = entry.options.get(CONF_BATTERY_MAX_POWER_W)
     device = SungrowInverter(
-        RetryingUnit(unit),
+        # Live, a WiNet-S sharing its link answered exception 4 three times
+        # in a row on a read-back; a fourth try costs one more second.
+        RetryingUnit(unit, RetryPolicy(attempts=4)),
         battery_max_power_w=(
             int(battery_max_power)
             if battery_max_power is not None

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Live M5 follow-up: a read-back that fails after the writes landed (a
+  WiNet-S sharing its link answered exception 4 three times in a row) no
+  longer fails the action outright — the touched blocks are re-read and the
+  plan is run once more; with nothing left to write the call counts as
+  verified. The integration's unit retries four times instead of three.
 - M5 review fixes (library 0.1.0a2): a failed write sequence drops the
   freshness of the components it touched, so the next guarded call re-reads
   before planning instead of trusting a cache that may not match the wire.

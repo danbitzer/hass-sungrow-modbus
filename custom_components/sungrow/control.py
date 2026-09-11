@@ -14,7 +14,14 @@ from typing import TYPE_CHECKING, Any
 
 from modbus_connection import ModbusError
 
-from sungrow_inverter import BatteryMode, DesiredState, VerificationError, WriteReport
+from sungrow_inverter import (
+    BatteryMode,
+    DesiredState,
+    SettingsUnavailableError,
+    VerificationError,
+    WriteReport,
+    WriteUncertainError,
+)
 
 from .const import FRESHNESS_MARGIN_S
 from .errors import raise_for_control_error
@@ -43,9 +50,35 @@ async def async_run(
     fresh read of the touched components. A write that got no answer or
     was refused leaves the cache suspect, so those are re-read too; if that
     read fails as well, the coordinator keeps its last honest poll.
+
+    A read-back that fails (a WiNet-S under contention answers exception 4
+    in bursts) does not fail the call outright: the touched components are
+    re-read and the call is planned again once. If nothing is left to
+    write, the first attempt's writes are confirmed; if something is, it
+    is written and verified as usual.
     """
     try:
         report = await call(max_age_s(runtime))
+    except (SettingsUnavailableError, WriteUncertainError) as err:
+        if not publish or not await _publish_after_error(runtime, err):
+            raise_for_control_error(err)
+        first = err.report
+        assert first is not None
+        _LOGGER.warning(
+            "%s: %s; re-read the settings and planning again", first.action, err
+        )
+        try:
+            second = await call(max_age_s(runtime))
+        except Exception as again:  # noqa: BLE001 - every kind is mapped
+            await _publish_after_error(runtime, again)
+            raise_for_control_error(again)
+        report = WriteReport(
+            action=second.action,
+            writes=first.writes + second.writes,
+            skipped=second.skipped,
+            verified=second.verified or not second.writes,
+            at=first.at,
+        )
     except Exception as err:  # noqa: BLE001 - every kind is mapped
         if publish:
             await _publish_after_error(runtime, err)
@@ -66,37 +99,42 @@ async def async_run(
     return report
 
 
-async def _publish_after_error(runtime: SungrowRuntime, err: BaseException) -> None:
+async def _publish_after_error(runtime: SungrowRuntime, err: BaseException) -> bool:
+    """Publish what can honestly be published after a failed call.
+
+    Returns whether the touched components were read afresh.
+    """
     report = getattr(err, "report", None)
     if report is None:
-        return
+        return False
     touched = _touched(report)
     if isinstance(err, VerificationError):
         # The library read everything back before raising: that is fresh.
         runtime.settings.async_apply_snapshot(*touched)
-        return
+        return True
     field = getattr(err, "field", None)
     if isinstance(field, str):
         touched.add(field.split(".", 1)[0])
-    await _reread(runtime, touched)
+    return await _reread(runtime, touched)
 
 
-async def _reread(runtime: SungrowRuntime, names: set[str]) -> None:
+async def _reread(runtime: SungrowRuntime, names: set[str]) -> bool:
     """Read the named components again (outside the lock) and publish them."""
     if not names:
-        return
+        return True
     try:
         refreshed = await runtime.device.async_refresh(*sorted(names))
     except ModbusError as err:
         _LOGGER.warning("Could not re-read %s after a control call: %s", names, err)
         runtime.settings.async_mark_failed(names, err)
-        return
+        return False
     read = names - refreshed.failed.keys()
     if read:
         runtime.settings.async_apply_snapshot(*sorted(read))
     for name, failure in refreshed.failed.items():
         if name in names:
             runtime.settings.async_mark_failed({name}, failure)
+    return not (names & refreshed.failed.keys())
 
 
 def _touched(report: WriteReport) -> set[str]:

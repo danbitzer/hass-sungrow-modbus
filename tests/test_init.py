@@ -114,7 +114,7 @@ async def test_three_silent_polls_drop_the_link(
     fast = RetryPolicy(attempts=1)
     with patch(
         "custom_components.sungrow.RetryingUnit",
-        side_effect=lambda unit: RetryingUnit(unit, fast),
+        side_effect=lambda unit, *_: RetryingUnit(unit, fast),
     ):
         await setup_entry(hass, config_entry)
     runtime = config_entry.runtime_data

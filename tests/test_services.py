@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from homeassistant.const import ATTR_DEVICE_ID, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
@@ -11,6 +13,7 @@ from modbus_connection import (
     IllegalDataAddressError,
     IllegalDataValueError,
     ModbusTimeoutError,
+    ServerDeviceFailureError,
 )
 from modbus_connection.mock import MockModbusUnit, WriteEvent
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -434,3 +437,47 @@ async def test_an_action_after_a_failed_poll_revives_only_what_it_read(
     assert hass.states.get(alarm).state == STATE_UNAVAILABLE  # type: ignore[union-attr]
     total = hass.states.get(entity(hass, "sensor", "total_pv_generation"))
     assert total is not None and total.state == "5009.6"
+
+
+async def test_a_failed_read_back_is_retried_by_replanning(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_unit: MockModbusUnit,
+    writes: list[WriteEvent],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Live: every write landed, then the settings read-back got exception
+    4 three times. The touched blocks are re-read and the plan re-run; with
+    nothing left to write, the call counts as verified."""
+    await setup_entry(hass, config_entry)
+    device = device_id(hass, config_entry)
+    original = mock_unit.read_holding_registers
+    refusals = {"left": 0}
+
+    async def flaky(address: int, count: int = 1, **kwargs: object) -> object:
+        if address == 13017 and refusals["left"] > 0:
+            refusals["left"] -= 1
+            raise ServerDeviceFailureError()  # exception 4: contention
+        return await original(address, count, **kwargs)
+
+    def arm(event: WriteEvent) -> None:
+        if event.address == 13049:
+            refusals["left"] = 4  # outlasts the unit's retries, not the re-read
+
+    mock_unit.on_write(arm)
+    with patch.object(mock_unit, "read_holding_registers", flaky):
+        result = await call(
+            hass,
+            "set_battery_mode",
+            {ATTR_DEVICE_ID: device, "mode": "forced_charge", "power_w": 2000},
+        )
+    assert addresses(writes) == [(13051, 2000), (13050, 0xAA), (13049, 2)]
+    assert [w["field"] for w in result["writes"]] == [
+        "forced_power",
+        "charge_command",
+        "ems_mode",
+    ]
+    assert result["verified"] is True
+    assert result["battery_mode"] == "forced_charge"
+    assert battery_mode(hass) == "forced_charge"
+    assert "planning again" in caplog.text
