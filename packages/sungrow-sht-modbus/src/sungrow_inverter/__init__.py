@@ -32,7 +32,7 @@ from .models import OTHER_MODELS, SHT_MODELS, ShtModel, model_for
 from .report import UpdateReport, WriteRecord, WriteReport
 from .retry import RetryingUnit, RetryPolicy
 
-__version__ = "0.1.0a1"
+__version__ = "0.1.0a2"
 
 __all__ = [
     "DEFAULT_FENCE_POWER_W",

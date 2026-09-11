@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- M5 review fixes (library 0.1.0a2): a failed write sequence drops the
+  freshness of the components it touched, so the next guarded call re-reads
+  before planning instead of trusting a cache that may not match the wire.
+  In the integration, an action that fails after writing publishes only what
+  the inverter answered: the library's read-back on a verification failure,
+  otherwise a fresh read of the touched components, and if that read fails
+  too the affected entities go unavailable rather than showing pre-write
+  values as current. An unverified call re-reads only what it touched;
+  start and stop no longer trigger a settings poll against an inverter that
+  is booting or shutting down; a snapshot after a failed poll revives only
+  what was actually read. A number or switch whose write succeeded but whose
+  read-back failed says so ("written but could not be read back") and drops
+  until the next poll. Enabling the active power limitation while its ratio
+  reads 0 % is refused under "shutdown at 0 %", like the ratio itself. The
+  stop report merges the restore's writes. Service descriptions say the
+  export limit is refused outside the inverter's range and that `enabled`
+  is ignored when the limit is empty. 13 more tests.
 - M5: controls and actions. Actions `sungrow.set_battery_mode` (six
   requestable modes, `power_w`, `verify`), `set_export_limit` (`limit_w`,
   `enabled`; empty lifts the limitation), `set_pv_limitation`,

@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import pytest
-from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON
+from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
-from modbus_connection import IllegalDataValueError, ModbusTimeoutError
+from modbus_connection import (
+    IllegalDataAddressError,
+    IllegalDataValueError,
+    ModbusTimeoutError,
+)
 from modbus_connection.mock import MockModbusUnit, WriteEvent
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -204,5 +208,66 @@ async def test_stop_button_is_disabled_by_default_and_restores_first(
     await hass.services.async_call(
         "button", "press", {ATTR_ENTITY_ID: stop}, blocking=True
     )
-    # self-consumption first (EMS mode, then the leftover command), then stop
+    # self-consumption first (the EMS mode; the command is left alone), then stop
     assert addresses(writes) == [(13049, 0), (12999, 0xCE)]
+
+
+async def test_number_bounds_come_from_the_inverter(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    await setup_entry(hass, config_entry)
+    expected = {
+        "export_power_limit": (0, 15000),  # the ratings' min/max
+        "battery_max_charge_power": (10, 15000),
+        "battery_max_discharge_power": (10, 15000),
+        "battery_min_soc": (0, 50),
+        "battery_max_soc": (50, 100),
+        "battery_reserved_soc_for_backup": (0, 100),
+        "active_power_limit_ratio": (0, 100),
+    }
+    for key, (low, high) in expected.items():
+        found = hass.states.get(eid(hass, "number", key))
+        assert found is not None, key
+        assert (found.attributes["min"], found.attributes["max"]) == (low, high), key
+    switch = hass.states.get(eid(hass, "switch", "active_power_limitation"))
+    assert switch is not None and switch.state == STATE_OFF
+
+
+async def test_number_read_back_failure_is_named_and_the_entity_drops(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_unit: MockModbusUnit,
+    writes: list[WriteEvent],
+) -> None:
+    await setup_entry(hass, config_entry)
+    power = eid(hass, "number", "battery_forced_charge_discharge_power")
+
+    def refuse_reads(event: WriteEvent) -> None:
+        mock_unit.fail_read(13017, IllegalDataAddressError(), register_type="holding")
+
+    mock_unit.on_write(refuse_reads)
+    with pytest.raises(HomeAssistantError, match="written but could not be read back"):
+        await hass.services.async_call(
+            "number", "set_value", {ATTR_ENTITY_ID: power, "value": 3000}, blocking=True
+        )
+    assert addresses(writes) == [(13051, 3000)]
+    await hass.async_block_till_done()
+    assert state(hass, power) == STATE_UNAVAILABLE
+    assert config_entry.runtime_data.device.last_refresh("settings") is None
+
+
+async def test_enabling_active_power_limitation_at_zero_is_refused(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_unit: MockModbusUnit,
+    writes: list[WriteEvent],
+) -> None:
+    await setup_entry(hass, config_entry)
+    mock_unit.holding[13089] = 0  # ratio 0 % left behind; shutdown-at-zero is on
+    await config_entry.runtime_data.settings.async_refresh()
+    switch = eid(hass, "switch", "active_power_limitation")
+    with pytest.raises(ServiceValidationError, match="shut the inverter down"):
+        await hass.services.async_call(
+            "switch", "turn_on", {ATTR_ENTITY_ID: switch}, blocking=True
+        )
+    assert addresses(writes) == []

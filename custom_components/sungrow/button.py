@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.const import EntityCategory
@@ -18,6 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 1
 
 
+@dataclass(frozen=True, kw_only=True)
 class SungrowButtonDescription(SungrowEntityDescription, ButtonEntityDescription):
     """A command."""
 

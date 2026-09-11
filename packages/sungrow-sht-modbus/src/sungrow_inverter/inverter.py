@@ -381,6 +381,13 @@ class SungrowInverter:
         """``time.monotonic()`` of the component's last successful read, or None."""
         return self._refreshed.get(name)
 
+    def invalidate(self, *names: str) -> None:
+        """Forget when ``names`` were last read: the cache may not match the
+        wire (a write got no answer, or a read-back failed), so the next
+        guarded call re-reads them before planning."""
+        for name in names:
+            self._refreshed.pop(name, None)
+
     # -- derived -------------------------------------------------------------
 
     @property

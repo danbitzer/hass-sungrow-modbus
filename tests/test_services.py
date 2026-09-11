@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import pytest
-from homeassistant.const import ATTR_DEVICE_ID
+from homeassistant.const import ATTR_DEVICE_ID, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from modbus_connection import (
+    IllegalDataAddressError,
+    IllegalDataValueError,
+    ModbusTimeoutError,
+)
 from modbus_connection.mock import MockModbusUnit, WriteEvent
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -36,14 +41,26 @@ def device_id(hass: HomeAssistant, config_entry: MockConfigEntry) -> str:
     return device.id
 
 
+def entity(hass: HomeAssistant, platform: str, key: str) -> str:
+    found = er.async_get(hass).async_get_entity_id(platform, DOMAIN, f"{SERIAL}_{key}")
+    assert found is not None, key
+    return found
+
+
 def battery_mode(hass: HomeAssistant) -> str:
-    found = er.async_get(hass).async_get_entity_id(
-        "sensor", DOMAIN, f"{SERIAL}_battery_mode"
-    )
-    assert found is not None
-    state = hass.states.get(found)
+    state = hass.states.get(entity(hass, "sensor", "battery_mode"))
     assert state is not None
     return state.state
+
+
+def mode_attr(hass: HomeAssistant, name: str) -> object:
+    state = hass.states.get(entity(hass, "sensor", "battery_mode"))
+    assert state is not None
+    return state.attributes[name]
+
+
+def holding_reads(mock_unit: MockModbusUnit) -> list[int]:
+    return [e.address for e in mock_unit.read_events if e.register_type == "holding"]
 
 
 async def call(hass: HomeAssistant, service: str, data: dict) -> dict:  # type: ignore[type-arg]
@@ -236,3 +253,184 @@ async def test_stop_restores_self_consumption_first(
     writes.clear()
     await call(hass, "start_inverter", {ATTR_DEVICE_ID: device})
     assert addresses(writes) == [(12999, 0xCF)]
+
+
+async def test_unanswered_write_is_reported_honestly_and_replanned(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_unit: MockModbusUnit,
+    writes: list[WriteEvent],
+) -> None:
+    """The power landed, the command did not: HA shows the power the
+    inverter holds (re-read, not the cache) and the next call re-reads
+    before planning, so it does not skip the writes still needed."""
+    await setup_entry(hass, config_entry)
+    device = device_id(hass, config_entry)
+    mock_unit.fail_write(13050, ModbusTimeoutError())
+    with pytest.raises(HomeAssistantError, match="may or may not"):
+        await call(
+            hass,
+            "set_battery_mode",
+            {ATTR_DEVICE_ID: device, "mode": "forced_charge", "power_w": 2000},
+        )
+    assert addresses(writes) == [(13051, 2000)]
+    assert battery_mode(hass) == "self_consumption"  # true: EMS never changed
+    assert mode_attr(hass, "forced_power_w") == 2000  # re-read, not the cache
+
+    mock_unit.fail_write(13050, None)
+    mock_unit.read_events.clear()
+    writes.clear()
+    await call(
+        hass,
+        "set_battery_mode",
+        {ATTR_DEVICE_ID: device, "mode": "forced_charge", "power_w": 2000},
+    )
+    # the re-read after the failure is trusted: the power is not rewritten,
+    # the two registers that never landed are
+    assert addresses(writes) == [(13050, 0xAA), (13049, 2)]
+    assert battery_mode(hass) == "forced_charge"
+
+
+async def test_failed_read_back_takes_the_entities_unavailable(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_unit: MockModbusUnit,
+    writes: list[WriteEvent],
+) -> None:
+    """All writes landed but the read-back was refused: nothing is claimed."""
+    await setup_entry(hass, config_entry)
+    device = device_id(hass, config_entry)
+
+    def refuse_reads_after_the_last_write(event: WriteEvent) -> None:
+        if event.address == 13049:
+            mock_unit.fail_read(
+                13017, IllegalDataAddressError(), register_type="holding"
+            )
+
+    mock_unit.on_write(refuse_reads_after_the_last_write)
+    with pytest.raises(HomeAssistantError, match="read-back failed"):
+        await call(
+            hass,
+            "set_battery_mode",
+            {ATTR_DEVICE_ID: device, "mode": "forced_charge", "power_w": 2000},
+        )
+    assert addresses(writes) == [(13051, 2000), (13050, 0xAA), (13049, 2)]
+    assert battery_mode(hass) == STATE_UNAVAILABLE
+    number = hass.states.get(entity(hass, "number", "battery_max_charge_power"))
+    assert number is not None and number.state == "10000.0"  # its block read fine
+
+
+async def test_unverified_call_rereads_only_what_it_touched(
+    hass: HomeAssistant, config_entry: MockConfigEntry, mock_unit: MockModbusUnit
+) -> None:
+    await setup_entry(hass, config_entry)
+    device = device_id(hass, config_entry)
+    mock_unit.read_events.clear()
+    await call(
+        hass,
+        "set_pv_limitation",
+        {ATTR_DEVICE_ID: device, "limit": True, "verify": False},
+    )
+    assert holding_reads(mock_unit) == [13017]  # settings only, no full poll
+    assert mode_attr(hass, "pv_limited") is True
+
+
+async def test_a_fresh_snapshot_is_trusted_and_a_stale_one_is_not(
+    hass: HomeAssistant, config_entry: MockConfigEntry, mock_unit: MockModbusUnit
+) -> None:
+    await setup_entry(hass, config_entry)
+    device = device_id(hass, config_entry)
+    mock_unit.read_events.clear()
+    await call(hass, "set_battery_mode", {ATTR_DEVICE_ID: device, "mode": "hold"})
+    assert sorted(holding_reads(mock_unit)) == [13017, 33046]  # the read-back only
+
+    runtime = config_entry.runtime_data
+    runtime.device._refreshed["settings"] -= 120  # older than interval + margin
+    runtime.device._refreshed["battery_limits"] -= 120
+    mock_unit.read_events.clear()
+    await call(
+        hass, "set_battery_mode", {ATTR_DEVICE_ID: device, "mode": "self_consumption"}
+    )
+    reads = holding_reads(mock_unit)
+    assert len(reads) == 4  # a pre-read of both, then the read-back of both
+    assert battery_mode(hass) == "self_consumption"
+
+
+async def test_start_and_stop_do_not_poll_the_settings_tier(
+    hass: HomeAssistant, config_entry: MockConfigEntry, mock_unit: MockModbusUnit
+) -> None:
+    await setup_entry(hass, config_entry)
+    device = device_id(hass, config_entry)
+    mock_unit.read_events.clear()
+    result = await call(hass, "start_inverter", {ATTR_DEVICE_ID: device})
+    assert result["writes"][0]["field"] == "start_stop"
+    assert holding_reads(mock_unit) == []
+    assert mock_unit.read_events  # the measurement poll ran
+
+
+async def test_stop_is_not_attempted_when_the_restore_fails(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_unit: MockModbusUnit,
+    writes: list[WriteEvent],
+) -> None:
+    await setup_entry(hass, config_entry)
+    device = device_id(hass, config_entry)
+    await call(
+        hass,
+        "set_battery_mode",
+        {ATTR_DEVICE_ID: device, "mode": "forced_charge", "power_w": 2000},
+    )
+    writes.clear()
+    mock_unit.fail_write(13049, IllegalDataValueError())
+    with pytest.raises(HomeAssistantError, match="Writing settings.ems_mode failed"):
+        await call(hass, "stop_inverter", {ATTR_DEVICE_ID: device})
+    assert (12999, 0xCE) not in addresses(writes)
+    assert battery_mode(hass) == "forced_charge"
+
+
+async def test_export_limit_out_of_range_is_refused(
+    hass: HomeAssistant, config_entry: MockConfigEntry, writes: list[WriteEvent]
+) -> None:
+    await setup_entry(hass, config_entry)
+    device = device_id(hass, config_entry)
+    with pytest.raises(ServiceValidationError, match="outside"):
+        await call(hass, "set_export_limit", {ATTR_DEVICE_ID: device, "limit_w": 20000})
+    assert addresses(writes) == []
+
+
+async def test_no_response_when_not_asked(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    await setup_entry(hass, config_entry)
+    device = device_id(hass, config_entry)
+    result = await hass.services.async_call(
+        DOMAIN,
+        "set_battery_mode",
+        {ATTR_DEVICE_ID: device, "mode": "hold"},
+        blocking=True,
+    )
+    assert result is None
+    assert battery_mode(hass) == "hold"
+
+
+async def test_an_action_after_a_failed_poll_revives_only_what_it_read(
+    hass: HomeAssistant, config_entry: MockConfigEntry, mock_unit: MockModbusUnit
+) -> None:
+    await setup_entry(hass, config_entry)
+    device = device_id(hass, config_entry)
+    runtime = config_entry.runtime_data
+    mock_unit.fail_requests(ModbusTimeoutError())
+    await runtime.settings.async_refresh()
+    await hass.async_block_till_done()
+    mock_unit.fail_requests(None)
+    assert not runtime.settings.last_update_success
+    alarm = entity(hass, "binary_sensor", "inverter_alarm_active")
+    assert battery_mode(hass) == STATE_UNAVAILABLE
+    assert hass.states.get(alarm).state == STATE_UNAVAILABLE  # type: ignore[union-attr]
+
+    await call(hass, "set_battery_mode", {ATTR_DEVICE_ID: device, "mode": "hold"})
+    assert battery_mode(hass) == "hold"
+    assert hass.states.get(alarm).state == STATE_UNAVAILABLE  # type: ignore[union-attr]
+    total = hass.states.get(entity(hass, "sensor", "total_pv_generation"))
+    assert total is not None and total.state == "5009.6"

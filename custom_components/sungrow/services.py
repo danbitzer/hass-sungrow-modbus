@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 from homeassistant.const import ATTR_DEVICE_ID
@@ -42,6 +42,9 @@ from .control import (
     response,
 )
 
+if TYPE_CHECKING:
+    from . import SungrowRuntime
+
 _DEVICE: dict[Any, Any] = {vol.Required(ATTR_DEVICE_ID): cv.string}
 _VERIFY: dict[Any, Any] = {vol.Optional(ATTR_VERIFY, default=True): cv.boolean}
 
@@ -67,11 +70,12 @@ SET_PV_LIMITATION_SCHEMA = vol.Schema(
 DEVICE_SCHEMA = vol.Schema(_DEVICE)
 
 
-def _runtime(call: ServiceCall) -> Any:
+def _runtime(call: ServiceCall) -> SungrowRuntime:
     _, entry = async_get_device_and_config_entry(
         call.hass, DOMAIN, call.data[ATTR_DEVICE_ID]
     )
-    return entry.runtime_data
+    runtime: SungrowRuntime = entry.runtime_data
+    return runtime
 
 
 async def _set_battery_mode(call: ServiceCall) -> ServiceResponse:

@@ -43,6 +43,18 @@
       },
       "export_power_limit": {
         "default": "mdi:transmission-tower-export"
+      },
+      "battery_min_soc": {
+        "default": "mdi:battery-low"
+      },
+      "battery_max_soc": {
+        "default": "mdi:battery-high"
+      },
+      "battery_reserved_soc_for_backup": {
+        "default": "mdi:home-battery-outline"
+      },
+      "active_power_limit_ratio": {
+        "default": "mdi:speedometer-slow"
       }
     },
     "select": {
@@ -62,6 +74,9 @@
       },
       "backup_mode": {
         "default": "mdi:home-battery"
+      },
+      "active_power_limitation": {
+        "default": "mdi:speedometer-slow"
       }
     },
     "button": {

@@ -758,3 +758,29 @@ async def test_stop_and_start_record_the_running_state(
     assert report.writes[0].previous is inv.flows.running_state
     assert "STOP" in caplog.text
     assert inv.battery_control.lock.locked() is False
+
+
+async def test_a_failed_sequence_forgets_the_snapshot(
+    inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
+) -> None:
+    """After a write without an answer the cache may not match the wire, so
+    the next call must re-read before it plans (or it could skip a write)."""
+    unit.fail_write(13050, ModbusTimeoutError())
+    with pytest.raises(WriteUncertainError):
+        await inv.battery_control.apply(
+            DesiredState(BatteryMode.FORCED_CHARGE, power_w=2000)
+        )
+    assert addresses(writes) == [(13051, 2000)]  # the power landed
+    assert inv.last_refresh("settings") is None
+    assert inv.last_refresh("battery_limits") is None
+    assert inv.settings.forced_power == 0  # the stale cache, honestly stale
+
+    unit.fail_write(13050, None)
+    unit.read_events.clear()
+    writes.clear()
+    await inv.battery_control.apply(
+        DesiredState(BatteryMode.FORCED_CHARGE, power_w=2000)
+    )
+    assert unit.read_events[0].address == 13017  # re-read before planning
+    assert addresses(writes) == [(13050, 0xAA), (13049, 2)]  # power not rewritten
+    assert inv.settings.forced_power == 2000

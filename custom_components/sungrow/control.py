@@ -12,7 +12,9 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
-from sungrow_inverter import BatteryMode, DesiredState, WriteReport
+from modbus_connection import ModbusError
+
+from sungrow_inverter import BatteryMode, DesiredState, VerificationError, WriteReport
 
 from .const import FRESHNESS_MARGIN_S
 from .errors import raise_for_control_error
@@ -31,15 +33,22 @@ def max_age_s(runtime: SungrowRuntime) -> float | None:
     return None if interval is None else interval.total_seconds() + FRESHNESS_MARGIN_S
 
 
-async def async_run(runtime: SungrowRuntime, call: ControlCall) -> WriteReport:
-    """Run one control call, map its errors, publish the outcome."""
+async def async_run(
+    runtime: SungrowRuntime, call: ControlCall, *, publish: bool = True
+) -> WriteReport:
+    """Run one control call, map its errors, publish the outcome.
+
+    What gets published is always something the inverter answered: the
+    library's read-back (a verified call, or a verification failure), or a
+    fresh read of the touched components. A write that got no answer or
+    was refused leaves the cache suspect, so those are re-read too; if that
+    read fails as well, the coordinator keeps its last honest poll.
+    """
     try:
         report = await call(max_age_s(runtime))
     except Exception as err:  # noqa: BLE001 - every kind is mapped
-        published = getattr(err, "report", None)
-        if published is not None:
-            # Show what the inverter actually holds after a partial sequence.
-            runtime.settings.async_apply_snapshot(*_touched(published))
+        if publish:
+            await _publish_after_error(runtime, err)
         raise_for_control_error(err)
     _LOGGER.info(
         "%s: %d written, %d skipped, verified=%s",
@@ -48,17 +57,54 @@ async def async_run(runtime: SungrowRuntime, call: ControlCall) -> WriteReport:
         len(report.skipped),
         report.verified,
     )
-    if report.verified:
-        runtime.settings.async_apply_snapshot(*_touched(report))
-    elif report.writes:
-        await runtime.settings.async_refresh()
+    if publish and report.writes:
+        touched = _touched(report)
+        if report.verified:
+            runtime.settings.async_apply_snapshot(*touched)
+        else:
+            await _reread(runtime, touched)
     return report
 
 
+async def _publish_after_error(runtime: SungrowRuntime, err: BaseException) -> None:
+    report = getattr(err, "report", None)
+    if report is None:
+        return
+    touched = _touched(report)
+    if isinstance(err, VerificationError):
+        # The library read everything back before raising: that is fresh.
+        runtime.settings.async_apply_snapshot(*touched)
+        return
+    field = getattr(err, "field", None)
+    if isinstance(field, str):
+        touched.add(field.split(".", 1)[0])
+    await _reread(runtime, touched)
+
+
+async def _reread(runtime: SungrowRuntime, names: set[str]) -> None:
+    """Read the named components again (outside the lock) and publish them."""
+    if not names:
+        return
+    try:
+        refreshed = await runtime.device.async_refresh(*sorted(names))
+    except ModbusError as err:
+        _LOGGER.warning("Could not re-read %s after a control call: %s", names, err)
+        runtime.settings.async_mark_failed(names, err)
+        return
+    read = names - refreshed.failed.keys()
+    if read:
+        runtime.settings.async_apply_snapshot(*sorted(read))
+    for name, failure in refreshed.failed.items():
+        if name in names:
+            runtime.settings.async_mark_failed({name}, failure)
+
+
 def _touched(report: WriteReport) -> set[str]:
-    return {w.component for w in report.writes} | {
-        label.split(".", 1)[0] for label in report.skipped
-    }
+    return (
+        {w.component for w in report.writes}
+        | {label.split(".", 1)[0] for label in report.skipped}
+        | {label.split(".", 1)[0] for label in report.uncertain}
+    )
 
 
 def response(runtime: SungrowRuntime, report: WriteReport) -> dict[str, Any]:
@@ -103,10 +149,11 @@ async def async_set_pv_limitation(
 async def async_start_inverter(
     runtime: SungrowRuntime, user_id: str | None
 ) -> WriteReport:
+    """Boot the inverter. No settings read follows: it answers nothing for
+    minutes; the measurement poll shows the running state coming back."""
     _LOGGER.warning("Start inverter requested (user %s)", user_id)
-    report = await async_run(
-        runtime, lambda age: runtime.device.battery_control.start()
-    )
+    control = runtime.device.battery_control
+    report = await async_run(runtime, lambda age: control.start(), publish=False)
     await runtime.realtime.async_refresh()
     return report
 
@@ -117,14 +164,21 @@ async def async_stop_inverter(
     """Put the battery into self-consumption, then shut the inverter down.
 
     The EMS mode survives a shutdown: a later start would otherwise resume
-    a forced mode with a stale setpoint.
+    a forced mode with a stale setpoint. If the restore fails the stop is
+    not attempted.
     """
     _LOGGER.warning("Stop inverter requested (user %s)", user_id)
     restored = await async_set_battery_mode(
         runtime, BatteryMode.SELF_CONSUMPTION, None, verify=True
     )
-    report = await async_run(runtime, lambda age: runtime.device.battery_control.stop())
-    report.writes = restored.writes + report.writes
-    report.skipped = restored.skipped + report.skipped
+    control = runtime.device.battery_control
+    stopped = await async_run(runtime, lambda age: control.stop(), publish=False)
     await runtime.realtime.async_refresh()
-    return report
+    return WriteReport(
+        action="stop",
+        writes=restored.writes + stopped.writes,
+        skipped=restored.skipped + stopped.skipped,
+        uncertain=restored.uncertain + stopped.uncertain,
+        verified=restored.verified,
+        at=restored.at,
+    )

@@ -542,11 +542,11 @@
         },
         "limit_w": {
           "name": "Limit",
-          "description": "Export cap in watts, clamped to the inverter's range. Empty lifts the limitation."
+          "description": "Export cap in watts; refused if outside the inverter's range. Empty lifts the limitation."
         },
         "enabled": {
           "name": "Enabled",
-          "description": "Off writes the limit value but leaves the limitation disabled."
+          "description": "Off writes the limit value but leaves the limitation disabled. Ignored when the limit is empty."
         },
         "verify": {
           "name": "Verify",
@@ -629,6 +629,9 @@
     },
     "would_stop_inverter": {
       "message": "An active power limit of 0 % would shut the inverter down: shutdown at 0 % is on."
+    },
+    "readback_failed": {
+      "message": "{field} was written but could not be read back ({error}); the entity shows the last polled value until the next poll."
     }
   }
 }

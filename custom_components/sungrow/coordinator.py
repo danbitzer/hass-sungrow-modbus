@@ -153,11 +153,28 @@ class SungrowCoordinator(DataUpdateCoordinator[UpdateReport]):
         if self.data is None:
             return
         refreshed = set(names)
+        # After a poll that failed outright, only what was actually read
+        # comes back; the rest stays unavailable until the next poll.
+        previous = set(self.data.updated) if self.last_update_success else set()
         report = replace(
             self.data,
-            updated=sorted(set(self.data.updated) | refreshed),
+            updated=sorted(previous | refreshed),
             failed={k: v for k, v in self.data.failed.items() if k not in refreshed},
             at=time.monotonic(),
+        )
+        self.async_set_updated_data(report)
+
+    @callback
+    def async_mark_failed(self, names: set[str], error: ModbusError) -> None:
+        """Take the named components unavailable now: a control call left
+        their cache suspect and could not re-read them."""
+        if self.data is None or not names:
+            return
+        previous = set(self.data.updated) if self.last_update_success else set()
+        report = replace(
+            self.data,
+            updated=sorted(previous - names),
+            failed={**self.data.failed, **dict.fromkeys(sorted(names), error)},
         )
         self.async_set_updated_data(report)
 

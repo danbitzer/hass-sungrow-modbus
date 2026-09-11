@@ -101,5 +101,11 @@ def raise_for_control_error(err: BaseException) -> NoReturn:
                 translation_key="control_failed",
                 translation_placeholders={"error": str(err)},
             ) from err
+        case ValueError():
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="control_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
         case _:
             raise err

@@ -7,11 +7,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from modbus_connection import ModbusError
 
 from sungrow_inverter import SungrowInverter
 
+from .const import DOMAIN
 from .coordinator import SungrowCoordinator
 from .errors import raise_for_write_error
 
@@ -82,13 +85,26 @@ class SungrowEntity(CoordinatorEntity[SungrowCoordinator]):
         label = f"{component}.{field}"
         target = getattr(device, component)
         previous = getattr(target, field)
-        try:
-            async with device.battery_control.lock:
+        async with device.battery_control.lock:
+            try:
                 await target.write(field, value)
+            except Exception as err:  # noqa: BLE001 - mapped to HA errors
+                raise_for_write_error(label, value, err)
+            _LOGGER.info("%s: %s -> %s", label, previous, value)
+            try:
                 report = await device.async_refresh(component)
-        except Exception as err:  # noqa: BLE001 - mapped to HA errors
-            raise_for_write_error(label, value, err)
-        _LOGGER.info("%s: %s -> %s", label, previous, value)
-        if report.failed:
-            raise_for_write_error(label, value, next(iter(report.failed.values())))
+                failure: BaseException | None = next(iter(report.failed.values()), None)
+            except ModbusError as err:
+                failure = err
+        if failure is not None:
+            # The write was answered; only the read-back failed. The cache
+            # may not match the wire now: forget it and poll again.
+            device.invalidate(component)
+            if isinstance(failure, ModbusError):
+                self.coordinator.async_mark_failed({component}, failure)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="readback_failed",
+                translation_placeholders={"field": label, "error": str(failure)},
+            ) from failure
         self.coordinator.async_apply_snapshot(component)

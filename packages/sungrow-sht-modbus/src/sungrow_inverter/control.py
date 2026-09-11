@@ -294,7 +294,21 @@ class BatteryControl:
     async def _execute(
         self, action: str, steps: list[_Step], *, verify: bool
     ) -> WriteReport:
-        """Write the steps that differ, then read back and compare."""
+        """Write the steps that differ, then read back and compare.
+
+        On any failure the touched components' freshness is dropped: the
+        cache may no longer match the wire, so the next call re-reads.
+        """
+        touched = tuple(dict.fromkeys(s.component for s in steps))
+        try:
+            return await self._execute_steps(action, steps, touched, verify=verify)
+        except Exception:
+            self._inv.invalidate(*touched)
+            raise
+
+    async def _execute_steps(
+        self, action: str, steps: list[_Step], touched: tuple[str, ...], *, verify: bool
+    ) -> WriteReport:
         report = WriteReport(action=action)
         for step in steps:
             component = self._component(step.component)
@@ -325,7 +339,6 @@ class BatteryControl:
             await self._sleep(self._settle)
             # Re-read every component the plan touched, written or not: a
             # skipped step is only verified if its register is read again.
-            touched = tuple(dict.fromkeys(s.component for s in steps))
             try:
                 refreshed = await self._inv.async_refresh(*touched)
             except ModbusError as err:

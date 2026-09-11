@@ -8,10 +8,11 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import SungrowConfigEntry
-from .const import SETTINGS
+from .const import DOMAIN, SETTINGS
 from .entity import SungrowEntity, SungrowEntityDescription
 
 PARALLEL_UPDATES = 1
@@ -73,7 +74,18 @@ class SungrowSwitch(SungrowEntity, SwitchEntity):
         return None if value is None else bool(value)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.async_write("settings", self.entity_description.field, True)
+        field = self.entity_description.field
+        settings, shadow = self.device.settings, self.device.apl_shadow
+        if (
+            field == "active_power_limit_enabled"
+            and settings.active_power_limit_ratio == 0
+            and shadow is not None
+            and shadow.apl_shutdown_at_zero
+        ):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="would_stop_inverter"
+            )
+        await self.async_write("settings", field, True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.async_write("settings", self.entity_description.field, False)
