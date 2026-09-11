@@ -17,12 +17,13 @@ jobs:
           tag="${GITHUB_REF_NAME#lib-v}"
           version="$(sed -n 's/^version = "\(.*\)"$/\1/p' packages/sungrow-sht-modbus/pyproject.toml)"
           test "$tag" = "$version" || { echo "tag $tag != version $version"; exit 1; }
-      - run: uv build
-        working-directory: packages/sungrow-sht-modbus
+      # A workspace member builds into the workspace root's dist/.
+      - run: uv build --package sungrow-sht-modbus --out-dir dist
       - uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: packages/sungrow-sht-modbus/dist/
+          path: dist/
+          if-no-files-found: error
 
   publish:
     needs: build
