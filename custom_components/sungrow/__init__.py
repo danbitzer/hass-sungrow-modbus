@@ -1,7 +1,7 @@
 """The Sungrow SH-T hybrid inverter integration.
 
 Reads and controls an SH-T inverter through Home Assistant's shared Modbus
-connections and the ``sungrow-inverter`` library. The integration never opens
+connections and the ``sungrow-sht-modbus`` library. The integration never opens
 a connection itself; it asks ``modbus`` for a unit.
 """
 

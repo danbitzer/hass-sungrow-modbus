@@ -9,7 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "hass-sungrow-modbus",
-    "sungrow-inverter",
+    "sungrow-sht-modbus",
 ]
 
 [[package]]
@@ -1190,7 +1190,7 @@ dev = [
     { name = "pymodbus" },
     { name = "pytest-homeassistant-custom-component" },
     { name = "ruff" },
-    { name = "sungrow-inverter" },
+    { name = "sungrow-sht-modbus" },
     { name = "tmodbus" },
 ]
 
@@ -1203,7 +1203,7 @@ dev = [
     { name = "pymodbus", specifier = "==3.13.1" },
     { name = "pytest-homeassistant-custom-component", specifier = "==0.13.364" },
     { name = "ruff", specifier = ">=0.15" },
-    { name = "sungrow-inverter", editable = "packages/sungrow-inverter" },
+    { name = "sungrow-sht-modbus", editable = "packages/sungrow-sht-modbus" },
     { name = "tmodbus", specifier = "==0.6.2" },
 ]
 
@@ -2749,9 +2749,9 @@ wheels = [
 ]
 
 [[package]]
-name = "sungrow-inverter"
+name = "sungrow-sht-modbus"
 version = "0.1.0a1"
-source = { editable = "packages/sungrow-inverter" }
+source = { editable = "packages/sungrow-sht-modbus" }
 dependencies = [
     { name = "modbus-connection" },
 ]

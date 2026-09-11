@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sungrow-inverter"
+name = "sungrow-sht-modbus"
 version = "0.1.0a1"
 description = "Read and control Sungrow SH-T hybrid inverters over Modbus, built on modbus-connection."
 readme = "README.md"

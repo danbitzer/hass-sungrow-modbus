@@ -1,6 +1,6 @@
 """Read an SH-T inverter once and print every value. Read-only.
 
-    uv run --package sungrow-inverter python scripts/query.py "$SUNGROW_HOST" \
+    uv run --package sungrow-sht-modbus python scripts/query.py "$SUNGROW_HOST" \
         --unit "${SUNGROW_UNIT:-1}" [--raw .testdata/raw.json]
 
 The serial number is masked on the terminal unless ``--show-serial`` is

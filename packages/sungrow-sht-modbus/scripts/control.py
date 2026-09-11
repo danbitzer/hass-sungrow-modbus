@@ -1,7 +1,7 @@
 """Drive the guarded write layer from a terminal. WRITES to the inverter.
 
-    uv run --package sungrow-inverter python \\
-        packages/sungrow-inverter/scripts/control.py "$SUNGROW_HOST" \\
+    uv run --package sungrow-sht-modbus python \\
+        packages/sungrow-sht-modbus/scripts/control.py "$SUNGROW_HOST" \\
         --battery-max-power 10000 --yes \\
         apply self_consumption | apply no_charge | apply no_discharge | apply hold \\
         | apply forced_charge --power 2000 | apply forced_discharge --power 1000 \\

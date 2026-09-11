@@ -21,7 +21,7 @@ the `modbus-connection` library, which also ships a declarative device-modelling
 framework and an in-memory mock backend for tests. Device integrations are now
 expected to be a thin layer over a standalone PyPI device library.
 
-This project builds that: a `sungrow-inverter` device library plus a `sungrow`
+This project builds that: a `sungrow-sht-modbus` device library plus a `sungrow`
 custom integration focused on the SH-T hybrid family (SH5T–SH25T), with the
 guarded, ordered, atomic "desired state" operations built in so the Numbat
 blueprint collapses to one action call per branch.
@@ -31,8 +31,8 @@ blueprint collapses to one action call per branch.
 | Decision | Choice |
 |---|---|
 | Positioning | Own project, MIT. Register map borrowed from mkaiser's YAML (MIT, credited) and Sungrow protocol V1.1.15. Not contributing to mkaiser's `proper-ha-integration` branch. |
-| Repo layout | Monorepo: `packages/sungrow-inverter/` (PyPI library, no HA imports) + `custom_components/sungrow/` (integration requiring the PyPI library). uv workspace. |
-| Names | HA domain `sungrow`; PyPI `sungrow-inverter`; import `sungrow_inverter`. (`sungrow-modbus` on PyPI is mkaiser's alpha; `pysungrow` is taken.) |
+| Repo layout | Monorepo: `packages/sungrow-sht-modbus/` (PyPI library, no HA imports) + `custom_components/sungrow/` (integration requiring the PyPI library). uv workspace. |
+| Names | HA domain `sungrow`; PyPI `sungrow-sht-modbus` (2026-09-12: PyPI refused `sungrow-inverter` as too similar to the existing `sungrowinverter`); import `sungrow_inverter`. (`sungrow-modbus` on PyPI is mkaiser's alpha; `pysungrow` is taken.) |
 | Scope | SH-T only (device type codes 0x0E20–0x0E28); refuse other families in the config flow with a clear error. TCP first; serial params if cheap. |
 | Control surface | HA actions for composite desired states (guarded, ordered, atomic) + raw number/select/switch entities + read-only `sensor.battery_mode`. |
 | Failsafe | Heartbeat/grid-outage failsafe and the sweep stay in the Numbat blueprint (Numbat-specific); the integration is Numbat-agnostic. |
@@ -307,7 +307,7 @@ Three layers, exactly as the HA docs recommend:
 
 1. `modbus-connection` (HA-owned library) — connection, unit handles, block
    pooling, field codecs, mock backend.
-2. `sungrow-inverter` (this repo, PyPI) — `SungrowInverter` device object over
+2. `sungrow-sht-modbus` (this repo, PyPI) — `SungrowInverter` device object over
    typed `Component`s, the SH-T model gate, the WiNet-S retry wrapper, and
    `BatteryControl` (the guarded desired-state layer). No HA imports.
 3. `custom_components/sungrow` (this repo, HACS) — config flow, two
@@ -331,11 +331,11 @@ hass-sungrow-modbus/
 ├── hacs.json                 # {"name":"Sungrow SH-T Hybrid Inverter","homeassistant":"2026.9.0","render_readme":true}
 ├── .github/workflows/
 │   ├── ci.yml                # lib: ruff format/check, mypy --strict, pytest (3.13 + 3.14); integ: ruff, mypy, pytest (3.14); hassfest; HACS action
-│   ├── publish-library.yml   # on tag lib-v*: sed version into packages/sungrow-inverter/pyproject.toml, uv build, PyPI trusted publishing
+│   ├── publish-library.yml   # on tag lib-v*: sed version into packages/sungrow-sht-modbus/pyproject.toml, uv build, PyPI trusted publishing
 │   └── release-integration.yml  # on tag v*: assert manifest.version == tag
 ├── scripts/check.sh          # ruff format --check, ruff check, mypy, pytest (both packages)
-├── packages/sungrow-inverter/
-│   ├── pyproject.toml        # name="sungrow-inverter", hatchling, version="0.0.0" (patched from tag),
+├── packages/sungrow-sht-modbus/
+│   ├── pyproject.toml        # name="sungrow-sht-modbus", hatchling, version="0.0.0" (patched from tag),
 │   │                         # requires-python>=3.12, deps ["modbus-connection>=4.10,<5"], extras cli=["modbus-connection[tmodbus]>=4.10,<5"]
 │   ├── README.md
 │   ├── scripts/query.py      # read-only CLI dump (tcp/serial) through RetryingUnit; --raw dumps async_read_raw() JSON
@@ -372,25 +372,25 @@ name = "hass-sungrow-modbus"
 version = "0.0.0"
 requires-python = ">=3.14.2"
 [tool.uv.workspace]
-members = ["packages/sungrow-inverter"]
+members = ["packages/sungrow-sht-modbus"]
 [tool.uv.sources]
-sungrow-inverter = { workspace = true }
+sungrow-sht-modbus = { workspace = true }
 [dependency-groups]
 dev = [
-  "sungrow-inverter",
+  "sungrow-sht-modbus",
   "pytest-homeassistant-custom-component==0.13.364",   # pins homeassistant==2026.9.1
   "modbus-connection[tmodbus]>=4.10,<5",                 # HA's modbus/connection.py imports modbus_connection.tmodbus
   "pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.15", "mypy>=1.19",
 ]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests", "packages/sungrow-inverter/sungrow_inverter_tests"]
+testpaths = ["tests", "packages/sungrow-sht-modbus/sungrow_inverter_tests"]
 ```
 
 **Library delivery during development.** Tests never need PyPI (uv workspace).
 Dan's HAOS cannot `pip install -e`, so publish PyPI **pre-releases** from day
 one (`lib-v0.1.0a1`, `a2`, …) via trusted publishing; the manifest pins
-`"requirements": ["sungrow-inverter==0.1.0a1"]` and each alpha bump makes HA
+`"requirements": ["sungrow-sht-modbus==0.1.0a1"]` and each alpha bump makes HA
 reinstall. Install the integration by copying `custom_components/sungrow` to
 `/config/custom_components/` (or add the repo as a HACS custom repository).
 
@@ -679,7 +679,7 @@ register accepts it; the fence stays 10 W. `start`/`stop` were not exercised
 offer them.
 
 ### 6.8 CLI (`scripts/query.py`)
-`uv run --package sungrow-inverter python packages/sungrow-inverter/scripts/query.py $SUNGROW_HOST --unit 1 [--raw .testdata/raw.json]`
+`uv run --package sungrow-sht-modbus python packages/sungrow-sht-modbus/scripts/query.py $SUNGROW_HOST --unit 1 [--raw .testdata/raw.json]`
 runs one `async_update(collect_raw=...)` sweep through `RetryingUnit`, prints the
 model-gate result, every component (serial masked unless `--show-serial`), the
 read and retry counts and failed components, and optionally dumps the raw JSON
@@ -696,7 +696,7 @@ M3 adds `--apply MODE` behind an explicit confirmation flag.
   "issue_tracker": "https://github.com/danbitzer/hass-sungrow-modbus/issues",
   "integration_type": "device", "iot_class": "local_polling",
   "loggers": ["sungrow_inverter", "modbus_connection"],
-  "requirements": ["sungrow-inverter==0.1.0a1"], "version": "0.1.0" }
+  "requirements": ["sungrow-sht-modbus==0.1.0a1"], "version": "0.1.0" }
 ```
 
 ### 7.2 Config flow

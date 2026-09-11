@@ -1,4 +1,4 @@
-# sungrow-inverter
+# sungrow-sht-modbus
 
 Asynchronous, transport-independent Python library for Sungrow **SH-T** hybrid
 inverters (SH5T–SH25T) over Modbus, built on
@@ -59,7 +59,7 @@ finally:
 `scripts/query.py` reads a real inverter once and prints everything:
 
 ```sh
-uv run --package sungrow-inverter python packages/sungrow-inverter/scripts/query.py \
+uv run --package sungrow-sht-modbus python packages/sungrow-sht-modbus/scripts/query.py \
     "$SUNGROW_HOST" --unit "${SUNGROW_UNIT:-1}" --raw .testdata/raw.json
 ```
 

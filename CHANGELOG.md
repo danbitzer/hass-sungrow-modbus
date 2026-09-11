@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The library's PyPI name is `sungrow-sht-modbus` (PyPI refused
+  `sungrow-inverter` as too similar to an existing project); the import
+  name stays `sungrow_inverter`. The package directory follows.
 - M4 review fixes: `BatteryMode.INCONSISTENT` replaces `unknown` (which
   collided with Home Assistant's own "no value" state); `effective_mode()`
   no longer logs — the settings coordinator warns once when the settings

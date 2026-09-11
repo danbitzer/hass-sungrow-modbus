@@ -6,14 +6,14 @@ requires-python = ">=3.14.2"
 license = { text = "MIT" }
 
 [tool.uv.workspace]
-members = ["packages/sungrow-inverter"]
+members = ["packages/sungrow-sht-modbus"]
 
 [tool.uv.sources]
-sungrow-inverter = { workspace = true }
+sungrow-sht-modbus = { workspace = true }
 
 [dependency-groups]
 dev = [
-    "sungrow-inverter",
+    "sungrow-sht-modbus",
     # Pins homeassistant==2026.9.1 and its test stack.
     "pytest-homeassistant-custom-component==0.13.364",
     # homeassistant.components.modbus imports both the legacy pymodbus hub and
@@ -28,7 +28,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests", "packages/sungrow-inverter/sungrow_inverter_tests"]
+testpaths = ["tests", "packages/sungrow-sht-modbus/sungrow_inverter_tests"]
 # Two `tests` packages (workspace + library) collide under the default mode.
 addopts = "--import-mode=importlib"
 # custom_components must be importable as a package for the HA loader.
@@ -38,7 +38,7 @@ pythonpath = ["."]
 target-version = "py313"
 # ruff formats fenced code in Markdown; the plan's sketches are not code.
 extend-exclude = ["*.md"]
-src = ["packages/sungrow-inverter/src", "custom_components"]
+src = ["packages/sungrow-sht-modbus/src", "custom_components"]
 line-length = 88
 
 [tool.ruff.lint]
@@ -55,8 +55,8 @@ explicit_package_bases = true
 python_version = "3.14"
 strict = true
 files = [
-    "packages/sungrow-inverter/src",
-    "packages/sungrow-inverter/scripts",
+    "packages/sungrow-sht-modbus/src",
+    "packages/sungrow-sht-modbus/scripts",
     "custom_components",
     "tests",
 ]

@@ -11,7 +11,7 @@ standalone Python library it runs on.
 
 | Path | What |
 |---|---|
-| `packages/sungrow-inverter/` | `sungrow-inverter` on PyPI — the device library (no Home Assistant imports) |
+| `packages/sungrow-sht-modbus/` | `sungrow-sht-modbus` on PyPI — the device library (no Home Assistant imports) |
 | `custom_components/sungrow/` | The Home Assistant integration (HACS) |
 | `PLAN.md` | Design, decisions, research and milestones |
 | `CLAUDE.md` | Working rules for this repository |
@@ -57,7 +57,7 @@ Sungrow's protocol document; see `NOTICE.md`.
 
 ## Installing
 
-The integration needs the `sungrow-inverter` library from PyPI (the manifest
+The integration needs the `sungrow-sht-modbus` library from PyPI (the manifest
 pins the exact version) and Home Assistant 2026.9 or newer.
 
 1. Copy `custom_components/sungrow` into your Home Assistant `config/custom_components/`

@@ -1,7 +1,7 @@
 # hass-sungrow-modbus — working rules
 
-Two packages in one uv workspace: the `sungrow-inverter` device library
-(`packages/sungrow-inverter/`, PyPI, **no Home Assistant imports**) and the
+Two packages in one uv workspace: the `sungrow-sht-modbus` device library
+(`packages/sungrow-sht-modbus/`, PyPI, **no Home Assistant imports**) and the
 `sungrow` custom integration (`custom_components/sungrow/`). `PLAN.md` is the
 design of record; follow its milestone order.
 
@@ -29,7 +29,7 @@ statistics flat while raw history keeps filling. See PLAN.md §2a.
 
 ## Versions
 
-The library version (`packages/sungrow-inverter/pyproject.toml`) and the
+The library version (`packages/sungrow-sht-modbus/pyproject.toml`) and the
 manifest pin (`custom_components/sungrow/manifest.json` → `requirements`)
 must be equal. Never edit either by hand:
 `python scripts/sync_version.py --set X.Y.Z` moves both and re-installs the

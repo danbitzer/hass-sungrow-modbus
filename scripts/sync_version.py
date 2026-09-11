@@ -17,12 +17,17 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LIBRARY_PYPROJECT = ROOT / "packages" / "sungrow-inverter" / "pyproject.toml"
+LIBRARY_PYPROJECT = ROOT / "packages" / "sungrow-sht-modbus" / "pyproject.toml"
 LIBRARY_INIT = (
-    ROOT / "packages" / "sungrow-inverter" / "src" / "sungrow_inverter" / "__init__.py"
+    ROOT
+    / "packages"
+    / "sungrow-sht-modbus"
+    / "src"
+    / "sungrow_inverter"
+    / "__init__.py"
 )
 MANIFEST = ROOT / "custom_components" / "sungrow" / "manifest.json"
-PACKAGE = "sungrow-inverter"
+PACKAGE = "sungrow-sht-modbus"
 
 _PYPROJECT_VERSION = re.compile(r'^version = "(?P<v>[^"]+)"$', re.MULTILINE)
 _INIT_VERSION = re.compile(r'^__version__ = "(?P<v>[^"]+)"$', re.MULTILINE)

@@ -25,19 +25,19 @@ jobs:
       - name: Install the library and test tools
         run: |
           uv venv --python ${{ matrix.python }}
-          uv pip install -e packages/sungrow-inverter pytest pytest-asyncio ruff build
+          uv pip install -e packages/sungrow-sht-modbus pytest pytest-asyncio ruff build
       - name: Ruff
         run: |
           source .venv/bin/activate
-          ruff format --check packages/sungrow-inverter
-          ruff check packages/sungrow-inverter
+          ruff format --check packages/sungrow-sht-modbus
+          ruff check packages/sungrow-sht-modbus
       - name: Tests
-        working-directory: packages/sungrow-inverter
+        working-directory: packages/sungrow-sht-modbus
         run: |
           source ../../.venv/bin/activate
           pytest -q
       - name: Build
-        working-directory: packages/sungrow-inverter
+        working-directory: packages/sungrow-sht-modbus
         run: |
           source ../../.venv/bin/activate
           python -m build

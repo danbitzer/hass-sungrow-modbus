@@ -1,7 +1,7 @@
 name: Publish library to PyPI
 
 # Tag the library release as lib-vX.Y.Z; the tag must equal the version in
-# packages/sungrow-inverter/pyproject.toml (moved with scripts/sync_version.py).
+# packages/sungrow-sht-modbus/pyproject.toml (moved with scripts/sync_version.py).
 on:
   push:
     tags: ["lib-v*"]
@@ -15,14 +15,14 @@ jobs:
       - name: Check the tag matches the library version
         run: |
           tag="${GITHUB_REF_NAME#lib-v}"
-          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' packages/sungrow-inverter/pyproject.toml)"
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' packages/sungrow-sht-modbus/pyproject.toml)"
           test "$tag" = "$version" || { echo "tag $tag != version $version"; exit 1; }
       - run: uv build
-        working-directory: packages/sungrow-inverter
+        working-directory: packages/sungrow-sht-modbus
       - uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: packages/sungrow-inverter/dist/
+          path: packages/sungrow-sht-modbus/dist/
 
   publish:
     needs: build

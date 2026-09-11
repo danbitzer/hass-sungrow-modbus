@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = (
     ROOT
     / "packages"
-    / "sungrow-inverter"
+    / "sungrow-sht-modbus"
     / "sungrow_inverter_tests"
     / "fixtures"
     / "sh15t_p063.json"

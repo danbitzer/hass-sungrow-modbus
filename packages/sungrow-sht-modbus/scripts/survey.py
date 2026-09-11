@@ -1,7 +1,7 @@
 """Read-only block survey: which register spans does this inverter's link serve?
 
-    uv run --package sungrow-inverter python \
-        packages/sungrow-inverter/scripts/survey.py "$SUNGROW_HOST" \
+    uv run --package sungrow-sht-modbus python \
+        packages/sungrow-sht-modbus/scripts/survey.py "$SUNGROW_HOST" \
         --unit "${SUNGROW_UNIT:-1}" [--repeat 3] [--probe input:5722:24 ...]
 
 Prints one OK/FAIL line per probe, with the time each read took and, for a
