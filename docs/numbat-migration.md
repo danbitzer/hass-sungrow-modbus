@@ -35,8 +35,10 @@ Entity ids on Dan's install today are prefixed `sungrow_sh15t_` (for example
 renamed onto the mkaiser ids Numbat already uses, so **Numbat's `entities`
 config does not change**: `sensor.load_power`, `sensor.battery_level`,
 `sensor.battery_power` (positive = discharging, the same convention as
-mkaiser; `battery.power_convention: charge_negative` stays). The blueprint
-does not read those sensors, it only reads Numbat's own.
+mkaiser; `battery.power_convention: charge_negative` stays — the sign is
+load-bearing for Numbat and is pinned by the same integration test that
+pins the renamed sensors' units). The blueprint does not read those
+sensors, it only reads Numbat's own.
 
 ## 2. The actions (the contract)
 
@@ -63,9 +65,13 @@ optional response. All except start/stop take `verify` (default `true`).
 | `no_discharge` | mirror of `no_charge` | (unused today) |
 | `hold` | EMS self-consumption, both limits fenced | `hold` |
 
-`power_w` is a magnitude in watts, 0 to the **battery max power option**
-(Dan sets it to 15 000, the inverter's capability; Numbat's own caps size
-the moves). Above the option the call is refused.
+`power_w` is a magnitude in watts, 0 to the **battery max power option**.
+The option is the inverter's capability (Dan: 15 000 — set it there; it was
+left at 10 000 during M5 testing), and every non-fenced mode restores both
+limit registers to it, so self-consumption may serve the house at the full
+inverter rate by design. The everyday wear caps and the spike boost live in
+Numbat (`battery.max_charge_kw` / `max_discharge_kw`, `spike.discharge_kw`)
+and size every forced move. Above the option the call is refused.
 
 ### 2.2 Guarantees
 
@@ -164,9 +170,11 @@ acts within seconds: `hold` took battery power from 5.3 kW charging to
   not add up to any mode (a doubted EMS word, a forced mode with no
   command); it is distinct from HA's `unknown` (not yet polled). The sensor
   refreshes from every action's read-back and every 60 s poll.
-- `binary_sensor.<device>_grid_connected`: on while the running state is not
-  off-grid and phase A voltage is present. The blueprint's `grid_sensor`
-  input should default to this. Unavailable is treated as connected by the
+- `binary_sensor.<device>_grid_connected` (on Dan's install
+  `binary_sensor.sungrow_sh15t_grid_connected`; it keeps that id at M6 since
+  mkaiser had no equivalent): on while the running state is not off-grid
+  and phase A voltage is present. The blueprint's `grid_sensor` input
+  should default to this. Unavailable is treated as connected by the
   blueprint (unchanged).
 - The raw entities (`number.*`, `select.*`, `switch.*`) exist for parity with
   mkaiser and for dashboards. The blueprint must not use them: they write
@@ -199,15 +207,27 @@ limitation" register. Verified on Dan's SH15T:
 Why Numbat cares: with negative **buy** prices the best plan is to import
 for the house (and possibly charge) with PV fully off, not just export
 withheld. Today Numbat models curtailment as "export withheld" and
-`hold` as "grid serves the house net of PV". A `pv_off` decision is a
-third lever: the planner could publish a `pv_off` attribute on
-`sensor.numbat_action` (atomic with the action, like `curtail`) when the
-interval's buy price is below zero and the house would otherwise be served
-by PV. The blueprint then calls `set_pv_limitation` from that attribute the
+`hold` as "grid serves the house net of PV" — and the optimizer already
+*plans* PV off: its PV usage variable is free (`0 ≤ pv_used ≤ pv`, no
+"PV serves the load first" constraint), so at negative buy it sets
+`pv_used = 0` and imports for the house, which is exactly where `hold`
+comes from on those days. The hardware could not follow until now.
+
+So the planner does not need a new decision, only a readout: a `pv_off`
+attribute on `sensor.numbat_action` (atomic with the action, like
+`curtail`), true when `current_buy < 0` and step 0 has PV available but
+uses none (`pv_kw > tol and pv_used_kw < tol`). Gate it on the live buy
+price the way `curtail` is gated on the live feed-in price, not on the
+solver alone: `pv_used = 0` also appears in cost ties around buy ≈ 0 and
+would flap. With the price gate, flapping is bounded by Amber's 30-minute
+buy-price blocks, and the 40–50 s recovery per flip is noise at that
+cadence. The blueprint calls `set_pv_limitation` from the attribute the
 same way it calls `set_export_limit` from `curtail`, and lifts it in the
-failsafe. Given the 40–50 s recovery, the planner should only flip it on
-runs of intervals, not single 5-minute blips. This is planner work in
-Numbat; the blueprint side is a few lines once the attribute exists.
+failsafe. That failsafe is the only thing standing between a dead Numbat
+and PV staying cut: an HA alert on `sensor.<device>_battery_mode`'s
+`pv_limited` attribute being true for more than ~30 minutes while
+`sensor.numbat_status` is not `ok` is cheap insurance. This is planner work
+in Numbat; the blueprint side is a few lines once the attribute exists.
 
 A related physics fact, verified 2026-09-12: **a forced discharge cannot
 discharge while export is capped and PV exceeds load.** With the export
@@ -237,7 +257,12 @@ Add:
 - `sungrow_device`: `selector: {device: {integration: sungrow}}`, required.
 - `export_limit_w`: the normal export limit to restore on uncurtail (Dan:
   15000; a DNSP-capped site enters its cap). `selector: {number: {min: 0,
-  max: 30000, step: 100, unit_of_measurement: W, mode: box}}`.
+  max: 30000, step: 100, unit_of_measurement: W, mode: box}}`. Required,
+  no default.
+- `curtail_limit_w`: the cap applied while export is withheld, default 50.
+  Not 0: a 0 W feed-in limit makes the SH series hunt (owners report a
+  constant 100–150 W import; a 0↔600 W oscillation was seen on Dan's unit
+  after a restart), and Dan's automation has used 50 W since the start.
 
 Remove: `charge_actions`, `discharge_actions`, `idle_actions`,
 `no_charge_actions`, `hold_actions`, `restore_actions`, `curtail_actions`,
@@ -254,21 +279,26 @@ actions:
   - action: sungrow.set_export_limit
     data:
       device_id: !input sungrow_device
-      limit_w: "{{ 0 if curtail_wanted else export_limit_w }}"
+      limit_w: "{{ curtail_limit_w if curtail_wanted else export_limit_w }}"
   - action: sungrow.set_battery_mode
     data:
       device_id: !input sungrow_device
       mode: >-
-        {{ {'charge': 'forced_charge', 'discharge': 'forced_discharge',
-            'no_charge': 'no_charge', 'hold': 'hold'}.get(action, 'self_consumption') }}
+        {%- set forced = {'charge': 'forced_charge', 'discharge': 'forced_discharge'} -%}
+        {%- if action in forced and power_w > 0 -%} {{ forced[action] }}
+        {%- else -%} {{ {'no_charge': 'no_charge', 'hold': 'hold'}.get(action, 'self_consumption') }}
+        {%- endif -%}
       power_w: "{{ power_w }}"
 ```
 
 Notes:
 
 - `power_w` is ignored for the non-forced modes, so passing it always is
-  fine; it must be present and greater than 0 for the forced ones (Numbat
-  publishes it atomically with the action).
+  fine. The forced modes accept `power_w: 0` and are then inert (a forced
+  charge at 0 W), which is why the template falls back to
+  `self_consumption` when a forced action arrives without a setpoint
+  (Numbat publishes `power_w` atomically with the action, so this only
+  covers a missing attribute).
 - The failsafe path (`numbat_alive` false, grid down, sensors missing)
   yields `action == 'idle'` and `curtail_wanted == false`, so the same two
   calls restore the export limit and self-consumption. No separate
@@ -290,7 +320,12 @@ Notes:
   integration's own read-back already catches most of them within the
   call.
 - An action call that fails raises; the automation run errors and the
-  trace shows the message. Leave it that way.
+  trace shows the message. Leave it that way. Note this is a change from
+  the mkaiser blueprint, where the input sequences ran independently: here
+  a failed `set_export_limit` ends the run before `set_battery_mode`. The
+  cap-before-forced-mode order is the right one, a transient failure is
+  repaired by the next sweep, and the test plan exercises the failure path
+  deliberately.
 - `mode: restart` is safe: the integration finishes a call the automation
   cancelled.
 
@@ -311,15 +346,14 @@ Notes:
 
 ## 7. Open items for Dan (decide before or during the rework)
 
-1. **Spike boosts vs the power ceiling: decided.** The action refuses
-   `power_w` above the battery-max-power option, and forced modes restore
-   the limits to that option. Dan sets the option to 15 kW (the inverter's
-   capability, as mkaiser was configured), so every `power_w` Numbat can
-   publish is accepted; the everyday wear caps live in Numbat's
-   `battery.max_charge_kw` / `max_discharge_kw` and `spike.discharge_kw`,
-   which size every forced move. Self-consumption then restores the limits
-   to 15 kW (idle is bounded by the PV array and the house load in
-   practice).
+1. **Spike boosts vs the power ceiling: decided (Dan, 2026-09-12).** The
+   option is the inverter's capability, 15 kW, as mkaiser was configured:
+   the 10 kW everyday cap and the 12 kW spike boost apply to forced
+   charge/discharge only and are Numbat's to enforce, and self-consumption
+   is meant to serve the house at the full 15 kW when it pulls that much.
+   The action refuses `power_w` above the option and every non-fenced mode
+   restores both limits to it, so no library change is needed. Action item:
+   set the option to 15 000 on Dan's install (left at 10 000 during M5).
 2. **Whether to implement `pv_off` in the planner now** or ship the
    blueprint first with the two-call shape and add PV limitation later.
 3. **`export_limit_w` default.** 15000 matches Dan's inverter; a blueprint
@@ -346,9 +380,14 @@ polling; contention shows as retried exception 4 and is expected):
    the 5-minute sweep.
 4. Stop the add-on for longer than `max_heartbeat_age_minutes` and confirm
    the failsafe restores self-consumption and the export limit.
-5. Disable the automation at the end; confirm the inverter is in
-   self-consumption with both limits at 10 000 W and the export limit at
-   its normal value.
+5. Make the export call fail once (temporarily set `export_limit_w` above
+   the inverter's range, or point the automation at a device that is
+   offline) while a forced action is injected: the run must error in the
+   trace and the next 5-minute sweep must complete normally once the input
+   is fixed. This is the failure path that §5.3 accepts.
+6. Disable the automation at the end; confirm the inverter is in
+   self-consumption with both limits at 15 000 W (the option) and the
+   export limit at its normal value.
 
 Live registers verified on Dan's SH15T so far: every mode transition,
 export limit round trip, PV limitation on/off, PV off + forced charge
