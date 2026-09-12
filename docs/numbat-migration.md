@@ -64,9 +64,8 @@ optional response. All except start/stop take `verify` (default `true`).
 | `hold` | EMS self-consumption, both limits fenced | `hold` |
 
 `power_w` is a magnitude in watts, 0 to the **battery max power option**
-(currently 10 000 W on Dan's install, his chosen limit; the inverter can do
-15 000). Above the option the call is refused, see section 7 for the spike
-question this raises.
+(Dan sets it to 15 000, the inverter's capability; Numbat's own caps size
+the moves). Above the option the call is refused.
 
 ### 2.2 Guarantees
 
@@ -195,7 +194,7 @@ limitation" register. Verified on Dan's SH15T:
   `pv_off + self_consumption` = the battery serves the house (verified);
   `pv_off + hold` = the grid serves the house with nothing generating;
   `pv_off + forced_charge` = true grid charging with no PV contribution
-  (not yet tested live).
+  (verified by Dan 2026-09-12: the charge was drawn from the grid).
 
 Why Numbat cares: with negative **buy** prices the best plan is to import
 for the house (and possibly charge) with PV fully off, not just export
@@ -312,17 +311,15 @@ Notes:
 
 ## 7. Open items for Dan (decide before or during the rework)
 
-1. **Spike boosts vs the power ceiling.** Numbat's `spike.discharge_kw`
-   raises the discharge cap above the everyday limit during confirmed
-   spikes (12 kW vs Dan's 10 kW everyday limit). The action refuses
+1. **Spike boosts vs the power ceiling: decided.** The action refuses
    `power_w` above the battery-max-power option, and forced modes restore
-   the limits to that option, so a 12 kW forced discharge is refused today.
-   Options: set the option to the spike cap and accept that
-   self-consumption also restores to it; or change the integration so a
-   forced mode raises the relevant limit to `max(option, power_w)` capped
-   at the inverter's capability (min of nominal and BDC rating, 15 kW). The
-   second is a small library change and keeps the everyday limit; it needs
-   Dan's call.
+   the limits to that option. Dan sets the option to 15 kW (the inverter's
+   capability, as mkaiser was configured), so every `power_w` Numbat can
+   publish is accepted; the everyday wear caps live in Numbat's
+   `battery.max_charge_kw` / `max_discharge_kw` and `spike.discharge_kw`,
+   which size every forced move. Self-consumption then restores the limits
+   to 15 kW (idle is bounded by the PV array and the house load in
+   practice).
 2. **Whether to implement `pv_off` in the planner now** or ship the
    blueprint first with the two-call shape and add PV limitation later.
 3. **`export_limit_w` default.** 15000 matches Dan's inverter; a blueprint
@@ -354,6 +351,6 @@ polling; contention shows as retried exception 4 and is expected):
    its normal value.
 
 Live registers verified on Dan's SH15T so far: every mode transition,
-export limit round trip, PV limitation on/off. Not yet verified live:
-`no_discharge`, `pv_off + forced_charge`, start/stop (never to be used by
-Numbat).
+export limit round trip, PV limitation on/off, PV off + forced charge
+(grid charging). Not yet verified live: `no_discharge`, start/stop (never
+to be used by Numbat).
