@@ -65,20 +65,20 @@
   },
   "entity": {
     "sensor": {
-      "total_dc_power": {
-        "name": "Total DC power"
+      "pv_power": {
+        "name": "PV power"
       },
       "mppt1_power": {
-        "name": "MPPT1 power"
+        "name": "MPPT 1 power"
       },
       "mppt2_power": {
-        "name": "MPPT2 power"
+        "name": "MPPT 2 power"
       },
       "mppt3_power": {
-        "name": "MPPT3 power"
+        "name": "MPPT 3 power"
       },
-      "total_active_power": {
-        "name": "Total active power"
+      "inverter_power": {
+        "name": "Inverter AC power"
       },
       "reactive_power": {
         "name": "Reactive power"
@@ -95,8 +95,8 @@
       "load_power": {
         "name": "Load power"
       },
-      "export_power_raw": {
-        "name": "Export power raw"
+      "grid_power": {
+        "name": "Grid power"
       },
       "export_power": {
         "name": "Export power"
@@ -105,16 +105,16 @@
         "name": "Import power"
       },
       "meter_active_power": {
-        "name": "Meter active power"
+        "name": "Meter power"
       },
       "meter_phase_a_active_power": {
-        "name": "Meter phase A active power"
+        "name": "Meter phase A power"
       },
       "meter_phase_b_active_power": {
-        "name": "Meter phase B active power"
+        "name": "Meter phase B power"
       },
       "meter_phase_c_active_power": {
-        "name": "Meter phase C active power"
+        "name": "Meter phase C power"
       },
       "backup_phase_a_power": {
         "name": "Backup phase A power"
@@ -126,43 +126,43 @@
         "name": "Backup phase C power"
       },
       "total_backup_power": {
-        "name": "Total backup power"
+        "name": "Backup power"
       },
       "mppt1_voltage": {
-        "name": "MPPT1 voltage"
+        "name": "MPPT 1 voltage"
       },
       "mppt1_current": {
-        "name": "MPPT1 current"
+        "name": "MPPT 1 current"
       },
       "mppt2_voltage": {
-        "name": "MPPT2 voltage"
+        "name": "MPPT 2 voltage"
       },
       "mppt2_current": {
-        "name": "MPPT2 current"
+        "name": "MPPT 2 current"
       },
       "mppt3_voltage": {
-        "name": "MPPT3 voltage"
+        "name": "MPPT 3 voltage"
       },
       "mppt3_current": {
-        "name": "MPPT3 current"
+        "name": "MPPT 3 current"
       },
       "phase_a_voltage": {
-        "name": "Phase A voltage"
+        "name": "Grid phase A voltage"
       },
       "phase_b_voltage": {
-        "name": "Phase B voltage"
+        "name": "Grid phase B voltage"
       },
       "phase_c_voltage": {
-        "name": "Phase C voltage"
+        "name": "Grid phase C voltage"
       },
       "phase_a_current": {
-        "name": "Phase A current"
+        "name": "Grid phase A current"
       },
       "phase_b_current": {
-        "name": "Phase B current"
+        "name": "Grid phase B current"
       },
       "phase_c_current": {
-        "name": "Phase C current"
+        "name": "Grid phase C current"
       },
       "backup_phase_a_voltage": {
         "name": "Backup phase A voltage"
@@ -232,10 +232,10 @@
         }
       },
       "running_state_raw": {
-        "name": "Running state raw"
+        "name": "Running state code"
       },
       "power_flow_status": {
-        "name": "Power flow status"
+        "name": "Power flow code"
       },
       "battery_mode": {
         "name": "Battery mode",
@@ -259,58 +259,58 @@
         "name": "Daily PV generation"
       },
       "total_pv_generation": {
-        "name": "Total PV generation"
+        "name": "Lifetime PV generation"
       },
       "daily_exported_energy_from_pv": {
-        "name": "Daily exported energy from PV"
+        "name": "Daily PV export"
       },
       "total_exported_energy_from_pv": {
-        "name": "Total exported energy from PV"
+        "name": "Lifetime PV export"
       },
       "daily_battery_charge_from_pv": {
         "name": "Daily battery charge from PV"
       },
       "total_battery_charge_from_pv": {
-        "name": "Total battery charge from PV"
+        "name": "Lifetime battery charge from PV"
       },
       "daily_direct_energy_consumption": {
-        "name": "Daily direct energy consumption"
+        "name": "Daily direct PV consumption"
       },
       "total_direct_energy_consumption": {
-        "name": "Total direct energy consumption"
+        "name": "Lifetime direct PV consumption"
       },
       "daily_battery_discharge": {
         "name": "Daily battery discharge"
       },
       "total_battery_discharge": {
-        "name": "Total battery discharge"
+        "name": "Lifetime battery discharge"
       },
       "daily_imported_energy": {
-        "name": "Daily imported energy"
+        "name": "Daily grid import"
       },
       "total_imported_energy": {
-        "name": "Total imported energy"
+        "name": "Lifetime grid import"
       },
       "daily_battery_charge": {
         "name": "Daily battery charge"
       },
       "total_battery_charge": {
-        "name": "Total battery charge"
+        "name": "Lifetime battery charge"
       },
       "daily_exported_energy": {
-        "name": "Daily exported energy"
+        "name": "Daily grid export"
       },
       "total_exported_energy": {
-        "name": "Total exported energy"
+        "name": "Lifetime grid export"
       },
-      "daily_pv_generation_battery_discharge": {
-        "name": "Daily PV generation and battery discharge"
+      "daily_output_energy": {
+        "name": "Daily output energy"
       },
-      "total_pv_generation_battery_discharge": {
-        "name": "Total PV generation and battery discharge"
+      "total_output_energy": {
+        "name": "Lifetime output energy"
       },
       "feed_in_limitation_ratio": {
-        "name": "Feed-in limitation ratio"
+        "name": "Feed-in limit ratio"
       },
       "battery_charging_start_power": {
         "name": "Battery charging start power"
@@ -319,40 +319,40 @@
         "name": "Battery discharging start power"
       },
       "export_power_limit_min": {
-        "name": "Export power limit min"
+        "name": "Export limit minimum"
       },
       "export_power_limit_max": {
-        "name": "Export power limit max"
+        "name": "Export limit maximum"
       },
       "bdc_rated_power": {
-        "name": "BDC rated power"
+        "name": "Battery converter rated power"
       },
       "bms_max_charging_current": {
-        "name": "BMS max charging current"
+        "name": "BMS max charge current"
       },
       "bms_max_discharging_current": {
-        "name": "BMS max discharging current"
+        "name": "BMS max discharge current"
       },
-      "battery_capacity_high_precision": {
+      "battery_capacity": {
         "name": "Battery capacity"
       },
       "inverter_rated_output": {
-        "name": "Inverter rated output"
+        "name": "Rated power"
       },
-      "sungrow_device_type_code": {
+      "device_type_code": {
         "name": "Device type code"
       },
-      "sungrow_device_type": {
-        "name": "Device type"
+      "device_type": {
+        "name": "Model"
       },
-      "sungrow_protocol_version": {
+      "protocol_version": {
         "name": "Protocol version"
       },
-      "sungrow_arm_software": {
-        "name": "ARM software"
+      "arm_firmware": {
+        "name": "ARM firmware"
       },
-      "sungrow_dsp_software": {
-        "name": "DSP software"
+      "dsp_firmware": {
+        "name": "DSP firmware"
       },
       "inverter_firmware_version": {
         "name": "Inverter firmware"
@@ -364,49 +364,49 @@
         "name": "Battery firmware"
       },
       "alarm_inverter_alarm": {
-        "name": "Alarm word inverter alarm"
+        "name": "Inverter alarm code"
       },
       "alarm_grid_fault": {
-        "name": "Alarm word grid fault"
+        "name": "Grid fault code"
       },
       "alarm_system_fault_1": {
-        "name": "Alarm word system fault 1"
+        "name": "System fault 1 code"
       },
       "alarm_system_fault_2": {
-        "name": "Alarm word system fault 2"
+        "name": "System fault 2 code"
       },
       "alarm_dc_fault": {
-        "name": "Alarm word dc fault"
+        "name": "DC fault code"
       },
       "alarm_permanent_fault": {
-        "name": "Alarm word permanent fault"
+        "name": "Permanent fault code"
       },
       "alarm_bdc_fault": {
-        "name": "Alarm word bdc fault"
+        "name": "BDC fault code"
       },
       "alarm_bdc_permanent_fault": {
-        "name": "Alarm word bdc permanent fault"
+        "name": "BDC permanent fault code"
       },
       "alarm_battery_fault": {
-        "name": "Alarm word battery fault"
+        "name": "Battery fault code"
       },
       "alarm_battery_alarm": {
-        "name": "Alarm word battery alarm"
+        "name": "Battery alarm code"
       },
       "alarm_bms_alarm": {
-        "name": "Alarm word bms alarm"
+        "name": "BMS alarm code"
       },
       "alarm_bms_protection": {
-        "name": "Alarm word bms protection"
+        "name": "BMS protection code"
       },
       "alarm_bms_fault_1": {
-        "name": "Alarm word bms fault 1"
+        "name": "BMS fault 1 code"
       },
       "alarm_bms_fault_2": {
-        "name": "Alarm word bms fault 2"
+        "name": "BMS fault 2 code"
       },
       "alarm_bms_alarm_2": {
-        "name": "Alarm word bms alarm 2"
+        "name": "BMS alarm 2 code"
       }
     },
     "binary_sensor": {
@@ -420,7 +420,7 @@
         "name": "Battery discharging"
       },
       "positive_load_power": {
-        "name": "Positive load power"
+        "name": "Load drawing power"
       },
       "exporting_power": {
         "name": "Exporting power"
@@ -429,7 +429,7 @@
         "name": "Importing power"
       },
       "negative_load_power": {
-        "name": "Negative load power"
+        "name": "Load feeding power"
       },
       "grid_connected": {
         "name": "Grid connected"
@@ -438,12 +438,12 @@
         "name": "Inverter alarm"
       },
       "apl_shutdown_at_zero": {
-        "name": "APL shutdown at zero"
+        "name": "Shutdown at 0 % power limit"
       }
     },
     "number": {
-      "battery_forced_charge_discharge_power": {
-        "name": "Battery forced charge/discharge power"
+      "forced_power": {
+        "name": "Forced charge/discharge power"
       },
       "battery_max_charge_power": {
         "name": "Battery max charge power"
@@ -458,13 +458,13 @@
         "name": "Battery max SoC"
       },
       "battery_reserved_soc_for_backup": {
-        "name": "Battery reserved SoC for backup"
+        "name": "Backup reserve SoC"
       },
       "export_power_limit": {
-        "name": "Export power limit"
+        "name": "Export limit"
       },
       "active_power_limit_ratio": {
-        "name": "Active power limit ratio"
+        "name": "Active power limit"
       }
     },
     "select": {
@@ -477,8 +477,8 @@
           "vpp": "VPP"
         }
       },
-      "battery_forced_charge_discharge": {
-        "name": "Battery forced charge/discharge",
+      "charge_command": {
+        "name": "Charge command",
         "state": {
           "charge": "Charge",
           "discharge": "Discharge",
@@ -487,17 +487,17 @@
       }
     },
     "switch": {
-      "export_power_limit": {
-        "name": "Export power limit"
+      "export_limit_enabled": {
+        "name": "Export limit"
       },
       "backup_mode": {
         "name": "Backup mode"
       },
-      "pv_power_limitation": {
-        "name": "PV power limitation"
+      "pv_limitation": {
+        "name": "PV limitation"
       },
-      "active_power_limitation": {
-        "name": "Active power limitation"
+      "active_power_limit_enabled": {
+        "name": "Active power limit"
       }
     },
     "button": {

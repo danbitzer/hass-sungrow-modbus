@@ -7,7 +7,7 @@
       "inverter_state": {
         "default": "mdi:state-machine"
       },
-      "total_dc_power": {
+      "pv_power": {
         "default": "mdi:solar-power-variant"
       },
       "load_power": {
@@ -32,7 +32,7 @@
       }
     },
     "number": {
-      "battery_forced_charge_discharge_power": {
+      "forced_power": {
         "default": "mdi:battery-arrow-up-outline"
       },
       "battery_max_charge_power": {
@@ -61,21 +61,21 @@
       "ems_mode": {
         "default": "mdi:battery-sync"
       },
-      "battery_forced_charge_discharge": {
+      "charge_command": {
         "default": "mdi:battery-charging"
       }
     },
     "switch": {
-      "pv_power_limitation": {
+      "pv_limitation": {
         "default": "mdi:solar-power-variant-outline"
       },
-      "export_power_limit": {
+      "export_limit_enabled": {
         "default": "mdi:transmission-tower-export"
       },
       "backup_mode": {
         "default": "mdi:home-battery"
       },
-      "active_power_limitation": {
+      "active_power_limit_enabled": {
         "default": "mdi:speedometer-slow"
       }
     },

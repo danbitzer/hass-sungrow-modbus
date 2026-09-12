@@ -127,7 +127,7 @@ async def test_three_silent_polls_drop_the_link(
         assert disconnect.await_count == 1
         await hass.async_block_till_done()
         battery = hass.states.get("sensor.sungrow_sh15t_battery_level")
-        total = hass.states.get("sensor.sungrow_sh15t_total_pv_generation")
+        total = hass.states.get("sensor.sungrow_sh15t_lifetime_pv_generation")
         assert battery is not None and battery.state == STATE_UNAVAILABLE
         assert total is not None and total.state == "5009.6"
 

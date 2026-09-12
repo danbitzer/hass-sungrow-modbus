@@ -1,8 +1,8 @@
 """Sensors: measurements, energy counters, state and diagnostic mirrors.
 
-Keys mirror the mkaiser YAML package's object ids where the value is the
-same register, so a user migrating can rename entities onto the ids their
-history lives under (unit classes and state classes match those entries).
+Names say what a value means to a homeowner (``pv_power``, not the
+protocol's "total DC power"). Unit and state classes of the values a
+migrating user might rename onto mkaiser ids still match those entries.
 """
 
 from __future__ import annotations
@@ -174,13 +174,11 @@ def _diag(
 
 SENSORS: tuple[SungrowSensorDescription, ...] = (
     # -- power (realtime) ----------------------------------------------------
-    _power("total_dc_power", "ac_dc", lambda d: d.ac_dc.total_dc_power),
+    _power("pv_power", "ac_dc", lambda d: d.ac_dc.total_dc_power),
     _power("mppt1_power", "ac_dc", lambda d: d.ac_dc.mppt1_power),
     _power("mppt2_power", "ac_dc", lambda d: d.ac_dc.mppt2_power),
     _power("mppt3_power", "ac_dc", lambda d: d.ac_dc.mppt3_power, exists=_mppt3),
-    _power(
-        "total_active_power", "grid_phases", lambda d: d.grid_phases.total_active_power
-    ),
+    _power("inverter_power", "grid_phases", lambda d: d.grid_phases.total_active_power),
     SungrowSensorDescription(
         key="reactive_power",
         translation_key="reactive_power",
@@ -202,7 +200,7 @@ SENSORS: tuple[SungrowSensorDescription, ...] = (
         lambda d: _positive(d.battery_power.battery_power),
     ),
     _power("load_power", "flows", lambda d: d.flows.load_power),
-    _power("export_power_raw", "flows", lambda d: d.flows.export_power),
+    _power("grid_power", "flows", lambda d: d.flows.export_power),
     _power("export_power", "flows", lambda d: _positive(d.flows.export_power)),
     _power("import_power", "flows", lambda d: _negative(d.flows.export_power)),
     _power("meter_active_power", "meter", lambda d: d.meter.meter_active_power),
@@ -436,12 +434,12 @@ SENSORS: tuple[SungrowSensorDescription, ...] = (
     ),
     _energy("total_exported_energy", lambda d: d.energy.total_export, total=True),
     _energy(
-        "daily_pv_generation_battery_discharge",
+        "daily_output_energy",
         lambda d: d.energy.daily_output_energy,
         total=False,
     ),
     _energy(
-        "total_pv_generation_battery_discharge",
+        "total_output_energy",
         lambda d: d.energy.total_output_energy,
         total=True,
     ),
@@ -510,7 +508,7 @@ SENSORS: tuple[SungrowSensorDescription, ...] = (
         exists=_ratings,
     ),
     _diag(
-        "battery_capacity_high_precision",
+        "battery_capacity",
         None,
         lambda d: d.ratings.battery_capacity if d.ratings else None,
         device_class=SensorDeviceClass.ENERGY_STORAGE,
@@ -525,15 +523,15 @@ SENSORS: tuple[SungrowSensorDescription, ...] = (
         device_class=SensorDeviceClass.POWER,
         native_unit_of_measurement=UnitOfPower.WATT,
     ),
-    _diag("sungrow_device_type_code", None, lambda d: d.identity.device_type_code),
+    _diag("device_type_code", None, lambda d: d.identity.device_type_code),
     _diag(
-        "sungrow_device_type",
+        "device_type",
         None,
         lambda d: d.model.name if d.model is not None else None,
     ),
-    _diag("sungrow_protocol_version", None, lambda d: d.identity.protocol_version_text),
-    _diag("sungrow_arm_software", None, lambda d: d.identity.arm_version),
-    _diag("sungrow_dsp_software", None, lambda d: d.identity.dsp_version),
+    _diag("protocol_version", None, lambda d: d.identity.protocol_version_text),
+    _diag("arm_firmware", None, lambda d: d.identity.arm_version),
+    _diag("dsp_firmware", None, lambda d: d.identity.dsp_version),
     _diag(
         "inverter_firmware_version",
         None,

@@ -107,7 +107,7 @@ def _power(key: str, component: str, field: str, **kw: Any) -> SungrowNumberDesc
 
 NUMBERS: tuple[SungrowNumberDescription, ...] = (
     _power(
-        "battery_forced_charge_discharge_power",
+        "forced_power",
         "settings",
         "forced_power",
         step=100,

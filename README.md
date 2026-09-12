@@ -58,6 +58,15 @@ battery mode that resulted.
 The raw registers are also exposed as number, select and switch entities for
 users of the mkaiser package; they write one register each with no guarding.
 
+## Naming conventions
+
+Entity names say what a value means, not what the protocol document calls
+the register: "PV power" is the sum of the MPPT inputs (the document's
+"total DC power"), "Grid power" is signed with export positive, "Battery
+power" is signed with **discharging positive** (the mkaiser convention),
+lifetime counters are "Lifetime …" and the day counters "Daily …". The
+alarm words are exposed as "… code" diagnostics, disabled by default.
+
 ## Known register quirks (SH15T, firmware P063, WiNet-S V300)
 
 - The daily grid counters (regs 13036 import, 13045 export) read 0 all day

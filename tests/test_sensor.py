@@ -43,10 +43,10 @@ async def test_values_match_the_capture(
     assert state(hass, "sensor", "battery_discharging_power") == "928"
     assert state(hass, "sensor", "battery_charging_power") == "0"
     assert state(hass, "sensor", "load_power") == "839"
-    assert state(hass, "sensor", "export_power_raw") == "10"
+    assert state(hass, "sensor", "grid_power") == "10"
     assert state(hass, "sensor", "export_power") == "10"
     assert state(hass, "sensor", "import_power") == "0"
-    assert state(hass, "sensor", "total_dc_power") == "0"
+    assert state(hass, "sensor", "pv_power") == "0"
     assert state(hass, "sensor", "mppt3_voltage") == "100.6"  # a 3-MPPT model
     assert state(hass, "sensor", "grid_frequency") == "50.01"
     assert state(hass, "sensor", "reactive_power") == "2686"
@@ -54,11 +54,11 @@ async def test_values_match_the_capture(
     assert state(hass, "sensor", "battery_mode") == "self_consumption"
     assert state(hass, "sensor", "total_pv_generation") == "5009.6"
     assert state(hass, "sensor", "daily_pv_generation") == "28.5"
-    assert state(hass, "sensor", "battery_capacity_high_precision") == "44.8"
+    assert state(hass, "sensor", "battery_capacity") == "44.8"
     assert (
         state(hass, "sensor", "inverter_firmware_version") == "PEARL-H_B000.V000.P063"
     )
-    assert state(hass, "sensor", "sungrow_device_type") == "SH15T"
+    assert state(hass, "sensor", "device_type") == "SH15T"
     assert state(hass, "sensor", "feed_in_limitation_ratio") == "100.0"
     assert state(hass, "sensor", "battery_charging_start_power") == "unknown"  # 0xFFFF
     assert state(hass, "sensor", "self_consumption_today") == "30.8"
@@ -78,10 +78,10 @@ async def test_values_match_the_capture(
     assert state(hass, "binary_sensor", "apl_shutdown_at_zero") == "on"
 
 
-async def test_unit_classes_match_the_mkaiser_entities(
+async def test_unit_and_state_classes_are_pinned(
     hass: HomeAssistant, config_entry: MockConfigEntry
 ) -> None:
-    """The history-preservation contract: unit and state class of ported ids."""
+    """The statistics contract: a changed unit or state class forks history."""
     await setup_entry(hass, config_entry)
     power = ("W", "power", "measurement")
     total = ("kWh", "energy", "total")
@@ -94,7 +94,7 @@ async def test_unit_classes_match_the_mkaiser_entities(
         "load_power": power,
         "export_power": power,
         "import_power": power,
-        "total_dc_power": power,
+        "pv_power": power,
         "total_pv_generation": total,
         "daily_pv_generation": daily,
         "total_imported_energy": total,
@@ -113,7 +113,7 @@ async def test_unit_classes_match_the_mkaiser_entities(
         "battery_state_of_health": ("%", None, "measurement"),
         "battery_temperature": ("°C", "temperature", "measurement"),
         "grid_frequency": ("Hz", "frequency", "measurement"),
-        "battery_capacity_high_precision": ("kWh", "energy_storage", None),
+        "battery_capacity": ("kWh", "energy_storage", None),
     }
     for key, (unit, device_class, state_class) in expected.items():
         found = hass.states.get(entity_id(hass, "sensor", key))
@@ -244,7 +244,7 @@ async def test_energy_totals_restore_across_a_restart(
         hass,
         (
             (
-                State("sensor.sungrow_sh15t_total_pv_generation", "1234.5"),
+                State("sensor.sungrow_sh15t_lifetime_pv_generation", "1234.5"),
                 {"native_value": 1234.5, "native_unit_of_measurement": "kWh"},
             ),
         ),

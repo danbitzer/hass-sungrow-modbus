@@ -13,8 +13,8 @@ is given.
 Dan's SH15T hybrid inverter (15 kW, 44.8 kWh battery, WiNet-S dongle) is now
 driven by a purpose-built integration, HA domain `sungrow`, from the repo
 `danbitzer/hass-sungrow-modbus`. It is installed alongside the mkaiser YAML
-package for now; the cutover (removing mkaiser, renaming entities) is the
-integration's milestone M6 and happens after the Numbat blueprint below is
+package for now; the cutover (removing mkaiser, repointing Numbat and the
+Energy dashboard) is the integration's milestone M6 and happens after the Numbat blueprint below is
 ready, so the old actuator stays as a fallback until then.
 
 What the integration gives Numbat that the YAML package could not:
@@ -30,15 +30,20 @@ What the integration gives Numbat that the YAML package could not:
   This is new capability for Numbat; see section 4.
 - **A grid-connected binary sensor** for the blueprint's outage check.
 
-Entity ids on Dan's install today are prefixed `sungrow_sh15t_` (for example
-`sensor.sungrow_sh15t_battery_level`). At M6 the entities Numbat reads are
-renamed onto the mkaiser ids Numbat already uses, so **Numbat's `entities`
-config does not change**: `sensor.load_power`, `sensor.battery_level`,
-`sensor.battery_power` (positive = discharging, the same convention as
-mkaiser; `battery.power_convention: charge_negative` stays — the sign is
-load-bearing for Numbat and is pinned by the same integration test that
-pins the renamed sensors' units). The blueprint does not read those
-sensors, it only reads Numbat's own.
+Entity ids on Dan's install are prefixed `sungrow_sh15t_` and are **not**
+renamed onto the mkaiser ids at the cutover (decided 2026-09-12: the
+history is not worth the churn). Numbat's `entities` config therefore
+changes to the new ids: `sensor.sungrow_sh15t_load_power`,
+`sensor.sungrow_sh15t_battery_level`, `sensor.sungrow_sh15t_battery_power`
+(positive = discharging, the same convention as mkaiser, so
+`battery.power_convention: charge_negative` stays; the sign is pinned by an
+integration test). The load forecast starts from the new sensor's short
+statistics history and recovers over about three weeks. The blueprint does
+not read those sensors, it only reads Numbat's own.
+
+Display names were tidied 2026-09-12 (for example "PV power" for what the
+protocol calls total DC power, "Lifetime …" for the lifetime counters); the
+entity ids above are unaffected.
 
 ## 2. The actions (the contract)
 

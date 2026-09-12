@@ -38,11 +38,11 @@ def _switch(key: str, field: str, **kw: Any) -> SungrowSwitchDescription:
 
 
 SWITCHES: tuple[SungrowSwitchDescription, ...] = (
-    _switch("export_power_limit", "export_limit_enabled"),
+    _switch("export_limit_enabled", "export_limit_enabled"),
     _switch("backup_mode", "backup_mode"),
-    _switch("pv_power_limitation", "pv_power_limitation"),
+    _switch("pv_limitation", "pv_power_limitation"),
     _switch(
-        "active_power_limitation",
+        "active_power_limit_enabled",
         "active_power_limit_enabled",
         exists=lambda d: d.settings.active_power_limit_ratio is not None,
     ),

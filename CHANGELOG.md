@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Entity naming pass (mkaiser parity dropped): "PV power" (was total DC
+  power), "Inverter AC power", "Grid power" (signed export), "Lifetime …"
+  for the lifetime counters, "Daily grid import/export", "Daily output
+  energy" for registers 5003/5004, "Model", "… code" for the alarm words,
+  "Load drawing/feeding power", "Shutdown at 0 % power limit"; the
+  `sungrow_` key prefixes are gone and the control keys are `forced_power`,
+  `charge_command`, `export_limit_enabled`, `pv_limitation`,
+  `active_power_limit_enabled`. Unique ids of the renamed keys change:
+  remove and re-add the integration to drop the orphans.
 - Control calls run to their end even when the caller is cancelled (an
   automation in `mode: restart` cancels its in-flight service call when it
   is re-triggered): writes, read-back and publication all complete.

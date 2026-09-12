@@ -42,7 +42,7 @@ def _select(key: str, field: str, enum: type[IntEnum]) -> SungrowSelectDescripti
 
 SELECTS: tuple[SungrowSelectDescription, ...] = (
     _select("ems_mode", "ems_mode", EmsMode),
-    _select("battery_forced_charge_discharge", "charge_command", ChargeCommand),
+    _select("charge_command", "charge_command", ChargeCommand),
 )
 
 

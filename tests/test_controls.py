@@ -50,7 +50,7 @@ async def test_number_writes_and_shows_the_read_back(
     writes: list[WriteEvent],
 ) -> None:
     await setup_entry(hass, config_entry)
-    power = eid(hass, "number", "battery_forced_charge_discharge_power")
+    power = eid(hass, "number", "forced_power")
     assert state(hass, power) == "10000.0"  # the leftover in the capture
     found = hass.states.get(power)
     assert found is not None
@@ -97,7 +97,7 @@ async def test_number_write_failures_are_typed(
     hass: HomeAssistant, config_entry: MockConfigEntry, mock_unit: MockModbusUnit
 ) -> None:
     await setup_entry(hass, config_entry)
-    power = eid(hass, "number", "battery_forced_charge_discharge_power")
+    power = eid(hass, "number", "forced_power")
     mock_unit.fail_write(13051, IllegalDataValueError())
     with pytest.raises(HomeAssistantError, match="failed"):
         await hass.services.async_call(
@@ -116,7 +116,7 @@ async def test_select_writes_the_enum(
 ) -> None:
     await setup_entry(hass, config_entry)
     ems = eid(hass, "select", "ems_mode")
-    command = eid(hass, "select", "battery_forced_charge_discharge")
+    command = eid(hass, "select", "charge_command")
     assert state(hass, ems) == "self_consumption"
     assert state(hass, command) == "discharge"
     found = hass.states.get(ems)
@@ -149,8 +149,8 @@ async def test_switch_writes_aa55(
     hass: HomeAssistant, config_entry: MockConfigEntry, writes: list[WriteEvent]
 ) -> None:
     await setup_entry(hass, config_entry)
-    pv = eid(hass, "switch", "pv_power_limitation")
-    export = eid(hass, "switch", "export_power_limit")
+    pv = eid(hass, "switch", "pv_limitation")
+    export = eid(hass, "switch", "export_limit_enabled")
     assert state(hass, pv) == STATE_OFF  # PV allowed
     assert state(hass, export) == STATE_ON
 
@@ -229,7 +229,7 @@ async def test_number_bounds_come_from_the_inverter(
         found = hass.states.get(eid(hass, "number", key))
         assert found is not None, key
         assert (found.attributes["min"], found.attributes["max"]) == (low, high), key
-    switch = hass.states.get(eid(hass, "switch", "active_power_limitation"))
+    switch = hass.states.get(eid(hass, "switch", "active_power_limit_enabled"))
     assert switch is not None and switch.state == STATE_OFF
 
 
@@ -240,7 +240,7 @@ async def test_number_read_back_failure_is_named_and_the_entity_drops(
     writes: list[WriteEvent],
 ) -> None:
     await setup_entry(hass, config_entry)
-    power = eid(hass, "number", "battery_forced_charge_discharge_power")
+    power = eid(hass, "number", "forced_power")
 
     def refuse_reads(event: WriteEvent) -> None:
         mock_unit.fail_read(13017, IllegalDataAddressError(), register_type="holding")
@@ -265,7 +265,7 @@ async def test_enabling_active_power_limitation_at_zero_is_refused(
     await setup_entry(hass, config_entry)
     mock_unit.holding[13089] = 0  # ratio 0 % left behind; shutdown-at-zero is on
     await config_entry.runtime_data.settings.async_refresh()
-    switch = eid(hass, "switch", "active_power_limitation")
+    switch = eid(hass, "switch", "active_power_limit_enabled")
     with pytest.raises(ServiceValidationError, match="shut the inverter down"):
         await hass.services.async_call(
             "switch", "turn_on", {ATTR_ENTITY_ID: switch}, blocking=True
