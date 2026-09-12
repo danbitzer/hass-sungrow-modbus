@@ -8,8 +8,9 @@ snapshot, so ``sensor.battery_mode`` and the numbers move at once.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
 from modbus_connection import ModbusError
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-type ControlCall = Callable[[float | None], Awaitable[WriteReport]]
+type ControlCall = Callable[[float | None], Coroutine[Any, Any, WriteReport]]
 
 
 def max_age_s(runtime: SungrowRuntime) -> float | None:
@@ -42,6 +43,22 @@ def max_age_s(runtime: SungrowRuntime) -> float | None:
 
 async def async_run(
     runtime: SungrowRuntime, call: ControlCall, *, publish: bool = True
+) -> WriteReport:
+    """Run one control call to its end, whatever happens to the caller.
+
+    An automation in ``mode: restart`` cancels its in-flight service call
+    when it is re-triggered; the write sequence, its read-back and the
+    publication must still run to the end, or the inverter is left between
+    two states and HA does not know it.
+    """
+    task = runtime.settings.hass.async_create_task(
+        _async_run(runtime, call, publish=publish)
+    )
+    return await asyncio.shield(task)
+
+
+async def _async_run(
+    runtime: SungrowRuntime, call: ControlCall, *, publish: bool
 ) -> WriteReport:
     """Run one control call, map its errors, publish the outcome.
 

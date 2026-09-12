@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -19,6 +20,8 @@ from modbus_connection.mock import MockModbusUnit, WriteEvent
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sungrow.const import DOMAIN
+from custom_components.sungrow.control import async_set_battery_mode
+from sungrow_inverter import BatteryMode
 
 from .conftest import SERIAL, setup_entry
 
@@ -481,3 +484,30 @@ async def test_a_failed_read_back_is_retried_by_replanning(
     assert result["battery_mode"] == "forced_charge"
     assert battery_mode(hass) == "forced_charge"
     assert "planning again" in caplog.text
+
+
+async def test_a_cancelled_caller_does_not_interrupt_the_sequence(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_unit: MockModbusUnit,
+    writes: list[WriteEvent],
+) -> None:
+    """A ``mode: restart`` automation cancels its in-flight service call when
+    re-triggered; the write sequence, its read-back and the publication
+    still complete. (The mock's writes never yield, so the cancel lands in
+    the settle delay before the read-back.)"""
+    await setup_entry(hass, config_entry)
+    runtime = config_entry.runtime_data
+    task = hass.async_create_task(
+        async_set_battery_mode(runtime, BatteryMode.FORCED_CHARGE, 2000, verify=True)
+    )
+    await asyncio.sleep(0.05)  # inside the settle delay
+    assert addresses(writes) == [(13051, 2000), (13050, 0xAA), (13049, 2)]
+    assert runtime.device.settings.forced_power == 10000  # not read back yet
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0.6)
+    await hass.async_block_till_done()
+    assert runtime.device.settings.forced_power == 2000  # the read-back ran
+    assert battery_mode(hass) == "forced_charge"  # and was published

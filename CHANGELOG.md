@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Control calls run to their end even when the caller is cancelled (an
+  automation in `mode: restart` cancels its in-flight service call when it
+  is re-triggered): writes, read-back and publication all complete.
+- `docs/numbat-migration.md`: the hand-over for reworking the Numbat
+  actuator blueprint onto the actions, including the PV limitation
+  capability and the open spike-power question.
 - Live M5 follow-up: a read-back that fails after the writes landed (a
   WiNet-S sharing its link answered exception 4 three times in a row) no
   longer fails the action outright — the touched blocks are re-read and the
