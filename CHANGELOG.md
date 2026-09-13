@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Fix (library 0.1.0a3): `set_export_limit` fought the inverter's own
+  feed-in ratio mirror.** On the SH-T the feed-in ratio register (13088)
+  and the value register (13074) are two views of one setting — writing
+  either updates both. The routine treated a mirrored 0.3 % (= 50 W) as a
+  ratio "below 100 %" that would override the watts, raised it to 100 %,
+  and the inverter mirrored that back as 15000 W: every other five-minute
+  re-assert of a 50 W cap lifted the cap for five minutes of export at
+  negative feed-in, and the sweeps between failed verification with
+  "settings.export_limit reads 15000 after writing 50" (live 2026-09-13).
+  The ratio is now aligned to the target's own ratio, written before the
+  watts (so the watts have the last word on a mirroring unit and both
+  registers cap identically on one that doesn't), and only when it differs
+  by more than the register's 0.1 % rounding; a re-assert of a cap that is
+  already in place writes nothing.
+
 - Entity naming pass (mkaiser parity dropped): "PV power" (was total DC
   power), "Inverter AC power", "Grid power" (signed export), "Lifetime …"
   for the lifetime counters, "Daily grid import/export", "Daily output

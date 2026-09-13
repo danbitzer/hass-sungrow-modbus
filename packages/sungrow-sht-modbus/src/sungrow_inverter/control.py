@@ -49,6 +49,9 @@ DEFAULT_MAX_AGE_S = 30.0
 DEFAULT_GRACE_S = 60.0
 """After an EMS mode write of ours, how long the running state may lag it
 before a disagreement counts as evidence (live: a few seconds)."""
+RATIO_TOLERANCE_PCT = 0.15
+"""The feed-in ratio register holds tenths of a percent; a watts value that
+isn't a multiple of 0.1 % of nominal reads back rounded either way."""
 
 _SETTINGS = ("settings", "battery_limits")
 _FORCED_STATES = (InverterState.COMPULSORY_MODE, InverterState.EXTERNAL_EMS)
@@ -71,6 +74,9 @@ class _Step:
     target: Any
     at_or_below: bool = False
     """A fence: any value at or below the target already satisfies it."""
+    tolerance: float | None = None
+    """A gauge the inverter may round: a value within this of the target
+    already satisfies it (and verifies)."""
 
 
 @dataclass(frozen=True)
@@ -239,6 +245,11 @@ class BatteryControl:
                 return bool(float(current) <= float(step.target))
             except (TypeError, ValueError):
                 return False
+        if step.tolerance is not None and current is not None:
+            try:
+                return bool(abs(float(current) - float(step.target)) <= step.tolerance)
+            except (TypeError, ValueError):
+                return False
         return same_on_wire(component, step.field, current, step.target)
 
     def _doubted(self, step: _Step) -> bool:
@@ -397,10 +408,18 @@ class BatteryControl:
         (disables it) without touching the value — a DNSP cap is restored by
         passing its watts, not None. With ``enabled=False`` the value is
         written and the limitation then disabled. The value is written
-        before the enable, so enabling never applies a stale limit. The
-        ratio register (13088) overrides the value when below 100 %, so it is
-        written to 100 % alongside an enabled limit; the active power
-        limitation (13089/13090) is a separate cap and only warned about.
+        before the enable, so enabling never applies a stale limit.
+
+        The ratio register (13088) is the same limit in tenths of a percent
+        of nominal power, and takes precedence when both are set. On the
+        SH-T it MIRRORS the watts register — writing either updates both
+        (live on an SH15T, 2026-09-13: 50 W reads back as 0.3 %, and a
+        ratio write of 100 % read back as 15000 W). So the ratio is never
+        "raised to 100 %": when it disagrees with the target it is written to
+        the target's OWN ratio, before the watts, so the watts write has the
+        last word on a mirroring unit and both registers cap identically on
+        one that doesn't. The active power limitation (13089/13090) is a
+        separate cap and only warned about.
         """
         async with self._lock:
             await self._ensure_fresh(("settings",), self._age(max_age_s))
@@ -412,17 +431,29 @@ class BatteryControl:
                 low, high = self._export_bounds()
                 if not low <= limit_w <= high:
                     raise PowerOutOfRangeError("export limit", limit_w, low, high)
-                steps = [_Step(s, "export_limit", int(limit_w))]
+                steps = []
                 if enabled:
                     ratio = settings.feed_in_ratio
-                    if ratio is not None and ratio < 100.0:
-                        _LOGGER.info(
-                            "feed-in ratio is %.1f %%; raising it to 100 %% so the "
-                            "%d W limit applies",
-                            ratio,
-                            limit_w,
-                        )
-                        steps.append(_Step(s, "feed_in_ratio", 100.0))
+                    nominal = self._inv.identity.nominal_power
+                    if ratio is not None and nominal:
+                        implied = round(min(100.0, 100.0 * limit_w / float(nominal)), 1)
+                        if abs(ratio - implied) > RATIO_TOLERANCE_PCT:
+                            _LOGGER.info(
+                                "feed-in ratio is %.1f %%; aligning it to %.1f %% "
+                                "so the %d W limit applies",
+                                ratio,
+                                implied,
+                                limit_w,
+                            )
+                            steps.append(
+                                _Step(
+                                    s,
+                                    "feed_in_ratio",
+                                    implied,
+                                    tolerance=RATIO_TOLERANCE_PCT,
+                                )
+                            )
+                steps.append(_Step(s, "export_limit", int(limit_w)))
                 steps.append(_Step(s, "export_limit_enabled", enabled))
                 apl_ratio = settings.active_power_limit_ratio
                 if (
