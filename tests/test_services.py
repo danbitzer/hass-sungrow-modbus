@@ -208,7 +208,9 @@ async def test_export_limit(
     result = await call(
         hass, "set_export_limit", {ATTR_DEVICE_ID: device, "limit_w": 0}
     )
-    assert addresses(writes) == [(13073, 0)]  # already enabled in the capture
+    # the ratio is aligned to the target first (it takes precedence and, on
+    # the SH-T, mirrors the watts); already enabled in the capture
+    assert addresses(writes) == [(13087, 0), (13073, 0)]
     assert "settings.export_limit_enabled" in result["skipped"]
 
     writes.clear()

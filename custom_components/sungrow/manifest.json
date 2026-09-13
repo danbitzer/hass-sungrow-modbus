@@ -17,7 +17,7 @@
     "modbus_connection"
   ],
   "requirements": [
-    "sungrow-sht-modbus==0.1.0a2"
+    "sungrow-sht-modbus==0.1.0a3"
   ],
   "version": "0.1.0"
 }

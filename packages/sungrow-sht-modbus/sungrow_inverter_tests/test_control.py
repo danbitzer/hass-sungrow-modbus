@@ -317,15 +317,18 @@ async def test_calls_are_serialised(
 # -- export limit, PV limit, start/stop ------------------------------------------
 
 
-async def test_set_export_limit_writes_value_then_enable(
+async def test_set_export_limit_writes_ratio_then_value_then_enable(
     inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
 ) -> None:
+    # the ratio register is the same limit in tenths of a percent of the
+    # 15 kW nominal power and takes precedence: it is aligned to the target
+    # first, then the watts, then the enable
     report = await inv.battery_control.set_export_limit(0)
-    assert addresses(writes) == [(13073, 0), (13086, 0xAA)]
+    assert addresses(writes) == [(13087, 0), (13073, 0), (13086, 0xAA)]
     assert report.verified and report.action == "export_limit"
     writes.clear()
     await inv.battery_control.set_export_limit(12000)
-    assert addresses(writes) == [(13073, 12000)]  # already enabled
+    assert addresses(writes) == [(13087, 800), (13073, 12000)]  # already enabled
     writes.clear()
     await inv.battery_control.set_export_limit(None)
     assert addresses(writes) == [(13086, 0x55)]
@@ -340,14 +343,63 @@ async def test_export_limit_is_bounded_by_the_ratings(
     assert writes == []
 
 
-async def test_export_limit_raises_a_ratio_that_would_override_it(
+async def test_export_limit_aligns_a_ratio_that_would_override_it(
     inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
 ) -> None:
     unit.holding[13087] = 500  # 50.0 %: the ratio register takes precedence
     await inv.async_refresh("settings")
     report = await inv.battery_control.set_export_limit(3000)
-    assert addresses(writes) == [(13073, 3000), (13087, 1000), (13086, 0xAA)]
-    assert report.verified and inv.settings.feed_in_ratio == 100.0
+    # aligned to the target's own ratio (20 % of 15 kW), never "raised to
+    # 100 %": on a mirroring inverter that would read back as 15000 W
+    assert addresses(writes) == [(13087, 200), (13073, 3000), (13086, 0xAA)]
+    assert report.verified and inv.settings.feed_in_ratio == 20.0
+
+
+def mirror_ratio_and_watts(unit: MockModbusUnit) -> None:
+    """The SH-T keeps the feed-in ratio (13088) and value (13074) registers
+    as two views of one setting: writing either updates both (live on an
+    SH15T, 2026-09-13)."""
+
+    def mirror(event: WriteEvent) -> None:
+        value = int(event.values[0])
+        if event.address == 13073:
+            unit.holding[13087] = round(value / 15000 * 1000)
+        elif event.address == 13087:
+            unit.holding[13073] = round(value / 1000 * 15000)
+
+    unit.on_write(mirror)
+
+
+async def test_export_limit_on_a_mirroring_inverter_reasserts_silently(
+    inv: SungrowInverter, unit: MockModbusUnit, writes: list[WriteEvent]
+) -> None:
+    """The 2026-09-13 live failure: a 50 W cap was re-asserted every five
+    minutes; the old routine saw the mirrored 0.3 % ratio as "below 100 %",
+    raised it, and the inverter mirrored that back as 15000 W — lifting the
+    cap for a five-minute export at negative feed-in on every other sweep,
+    and failing verification on the ones between."""
+    mirror_ratio_and_watts(unit)
+    unit.holding[13086] = 0xAA
+    await inv.async_refresh("settings")
+    report = await inv.battery_control.set_export_limit(50)
+    assert addresses(writes) == [(13087, 3), (13073, 50)]
+    assert report.verified
+    assert inv.settings.export_limit == 50 and inv.settings.feed_in_ratio == 0.3
+    writes.clear()
+    # the re-assert: nothing differs, nothing is written, nothing lifts
+    report = await inv.battery_control.set_export_limit(50)
+    assert writes == []
+    assert set(report.skipped) == {
+        "settings.export_limit",
+        "settings.export_limit_enabled",
+    }
+    assert inv.settings.export_limit == 50
+    # a watts value that is not a multiple of 0.1 % of nominal rounds on the
+    # mirror; the ratio verifies within its tolerance
+    writes.clear()
+    report = await inv.battery_control.set_export_limit(100)
+    assert addresses(writes) == [(13087, 7), (13073, 100)]
+    assert report.verified and inv.settings.export_limit == 100
 
 
 async def test_export_limit_warns_about_an_active_power_limit(
