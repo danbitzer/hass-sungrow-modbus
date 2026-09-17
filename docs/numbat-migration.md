@@ -209,6 +209,23 @@ limitation" register. Verified on Dan's SH15T:
   `pv_off + forced_charge` = true grid charging with no PV contribution
   (verified by Dan 2026-09-12: the charge was drawn from the grid).
 
+- **A PV restore can leave the inverter stalled (found 2026-09-17).** After
+  `set_pv_limitation {limit: false}` with the battery full and export
+  capped, the inverter re-engaged PV for a few minutes, then dropped it to
+  0 W and ran the house from the battery, and stayed there for over an hour
+  and down to 98 % SoC (PV strings at open-circuit voltage; PV limitation
+  off; every register as expected). Recorder statistics show it never
+  happened on curtailed full-battery afternoons before PV cuts were used
+  (nine days, zero stalls) and happened after 9 of the 11 cuts on 16-17
+  Sep. Lifting the export limit (`set_export_limit {limit_w: 15000}`) made
+  PV re-engage about 100 s later; re-applying the 50 W cap then tracked
+  the load normally, including through the next full-battery derating.
+  Consequences for Numbat: (a) do not flap `pv_off` — on 16 Sep it toggled
+  ten times in 3.5 hours; hold it for a minimum period and never for a
+  single interval; (b) after lifting a PV cut, the blueprint (or the
+  integration, later) should lift and re-apply the export cap once PV has
+  come back, so the derating loop restarts from a producing state.
+
 Why Numbat cares: with negative **buy** prices the best plan is to import
 for the house (and possibly charge) with PV fully off, not just export
 withheld. Today Numbat models curtailment as "export withheld" and
