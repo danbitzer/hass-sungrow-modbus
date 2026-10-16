@@ -31,12 +31,19 @@ and it stays in fault. Isolating the grid turns that into a clean outage.
 1. Switch the **Grid isolator** OFF.
 2. Wait two full minutes. Watch the inverter LED and the backup circuit.
    If power returns, stop here and skip to step 4.
-3. If still faulted, restart the inverter with the grid still isolated:
+3. If still faulted, try a **soft restart** before touching the battery:
+   wake the dongle's hotspot (section 3), open Local Access, and use the
+   inverter's **Stop** command, wait thirty seconds, then **Start**. This
+   reboots the control software with the battery untouched and clears most
+   latched faults. Allow two minutes.
+4. Only if the fault survives both of the above, do a **hard power cycle**
+   with the grid still isolated. The inverter's electronics run from the
+   battery's DC link, so without switching the battery off it never
+   actually restarts:
    1. **Inverter isolator** OFF.
    2. **DC isolator** OFF.
-   3. Battery OFF: press and hold the SBR power button (about three
-      seconds) until its LED goes out. If the battery has its own breaker,
-      switch that off too.
+   3. Battery OFF: press and hold the SBR power button until its LED goes
+      out. If the battery has its own breaker, switch that off too.
    4. Wait one minute. The inverter LEDs should be dark.
    5. Battery ON first: press and hold the power button until its LED
       lights. The battery must be live before the inverter, or it cannot
@@ -45,12 +52,12 @@ and it stays in fault. Isolating the grid turns that into a clean outage.
    7. **Inverter isolator** ON.
    8. Leave the **Grid isolator** OFF. Wait up to three minutes for the
       inverter to boot; it then runs the backup circuit from battery and PV.
-4. When the grid is back (a neighbour's lights, the street), switch the
+5. When the grid is back (a neighbour's lights, the street), switch the
    **Grid isolator** ON. The inverter detects the grid, synchronises and
    reconnects by itself within about a minute; the backup circuit stays up
    through the handover.
 
-If step 3 leaves the inverter in fault with the grid isolated, the cause
+If step 4 leaves the inverter in fault with the grid isolated, the cause
 is internal or in the wiring (loose AC terminal, swapped backup/grid
 terminals are the documented ones for 329). Nothing you can switch will
 help; restore the Grid isolator and call the installer or Sungrow.
@@ -58,7 +65,7 @@ help; restore the Grid isolator and call the installer or Sungrow.
 ## 2. Black start when the inverter is off
 
 With no grid and the inverter dark, the battery has gone to sleep and the
-inverter will not wake it. Follow step 3 above from 3.5 onwards: battery
+inverter will not wake it. Follow step 4 above from 4.5 onwards: battery
 ON, DC ON, Inverter isolator ON, Grid isolator OFF, wait three minutes.
 
 ## 3. Checking settings without the router
