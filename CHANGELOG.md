@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Library: `RetryingUnit` forwards the `require_timeout` and
+  `require_connect_delay` link requests that modbus-connection 4.12 added to
+  the unit protocol (a no-op on 4.10), so the wrapper is still a
+  `ModbusUnit` on either side of that release. This is what the library CI
+  job, which installs the newest modbus-connection, had been failing on.
+- `docs/examples/pv_limitation_watchdog.yaml`: an automation that notifies
+  (and restores PV) when the PV limitation stays on after Numbat releases
+  it, and notifies when PV stalls near zero in daylight with the
+  limitation off.
+- `docs/outage-runbook.md`: what to do when the inverter does not provide
+  backup (fault 329, clean grid isolation, soft restart, black start, the
+  WiNet-S2 hotspot, and which app settings not to touch).
 - **Fix (library 0.1.0a3): `set_export_limit` fought the inverter's own
   feed-in ratio mirror.** On the SH-T the feed-in ratio register (13088)
   and the value register (13074) are two views of one setting — writing

@@ -67,6 +67,13 @@ power" is signed with **discharging positive** (the mkaiser convention),
 lifetime counters are "Lifetime …" and the day counters "Daily …". The
 alarm words are exposed as "… code" diagnostics, disabled by default.
 
+## Recipes and runbooks
+
+- `docs/examples/pv_limitation_watchdog.yaml`: notify when PV stays limited
+  or stalls after a negative-price window.
+- `docs/outage-runbook.md`: when the inverter does not provide backup.
+- `docs/numbat-migration.md`: driving the actions from Numbat.
+
 ## Known register quirks (SH15T, firmware P063, WiNet-S V300)
 
 - The daily grid counters (regs 13036 import, 13045 export) read 0 all day

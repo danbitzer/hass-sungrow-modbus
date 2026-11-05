@@ -1,0 +1,72 @@
+# PV limitation watchdog: tell me when PV did not come back.
+#
+# Two things can leave the PV off after a negative-price window:
+#   A. the limitation is still ON although Numbat no longer asks for it
+#      (a lost write, a dead actuator, an app change) — "failed to un-limit";
+#   B. the limitation is OFF but PV sits near zero while the battery runs
+#      the house in daylight — the SH-T stall seen after a PV restore
+#      (lifting and re-applying the export limit clears it).
+#
+# Paste into Settings → Automations → Create → Edit in YAML, or save under
+# automations.yaml. Adjust the entity ids if your device is not "Sungrow
+# SH15T", and the notify service to your phone.
+alias: Sungrow PV limitation watchdog
+description: Notify when PV stays limited or stalled after Numbat releases it.
+mode: single
+triggers:
+  # A: limitation on while Numbat does not want it, for 10 minutes
+  - trigger: template
+    id: stuck_on
+    value_template: >-
+      {{ is_state('switch.sungrow_sh15t_pv_limitation', 'on')
+         and not (state_attr('sensor.numbat_action', 'pv_off') | default(false))
+         and is_state('sensor.numbat_status', 'ok') }}
+    for:
+      minutes: 10
+  # B: limitation off, sun well up, PV near zero, battery carrying the house
+  - trigger: template
+    id: stalled
+    value_template: >-
+      {{ is_state('switch.sungrow_sh15t_pv_limitation', 'off')
+         and (state_attr('sun.sun', 'elevation') | float(0)) > 20
+         and (states('sensor.sungrow_sh15t_load_power') | float(0)) > 300
+         and (states('sensor.sungrow_sh15t_pv_power') | float(0))
+             < 0.2 * (states('sensor.sungrow_sh15t_load_power') | float(0))
+         and (states('sensor.sungrow_sh15t_battery_power') | float(0))
+             > 0.5 * (states('sensor.sungrow_sh15t_load_power') | float(0)) }}
+    for:
+      minutes: 10
+actions:
+  - choose:
+      - conditions: "{{ trigger.id == 'stuck_on' }}"
+        sequence:
+          - action: notify.mobile_app_dans_iphone
+            data:
+              title: PV still limited
+              message: >-
+                PV limitation has been ON for 10 min while Numbat is not asking
+                for it (action {{ states('sensor.numbat_action') }}). Battery
+                {{ states('sensor.sungrow_sh15t_battery_level') }} %, import
+                {{ states('sensor.sungrow_sh15t_import_power') }} W. Restoring PV.
+              data:
+                tag: sungrow-pv-watchdog
+          # Self-heal: the same call the actuator would make. Delete this
+          # step if you only want the notification.
+          - action: sungrow.set_pv_limitation
+            data:
+              device_id: YOUR_SUNGROW_DEVICE_ID  # Settings → Devices → Sungrow: the id in the page URL, or {{ device_id('sensor.sungrow_sh15t_battery_mode') }} in Developer Tools → Template
+              limit: false
+      - conditions: "{{ trigger.id == 'stalled' }}"
+        sequence:
+          - action: notify.mobile_app_dans_iphone
+            data:
+              title: PV stalled
+              message: >-
+                PV is {{ states('sensor.sungrow_sh15t_pv_power') }} W with the
+                sun at {{ state_attr('sun.sun', 'elevation') | round }}° while
+                the battery supplies {{ states('sensor.sungrow_sh15t_battery_power') }} W
+                of a {{ states('sensor.sungrow_sh15t_load_power') }} W load
+                (limitation off). Lifting and re-applying the export limit
+                usually clears it.
+              data:
+                tag: sungrow-pv-watchdog

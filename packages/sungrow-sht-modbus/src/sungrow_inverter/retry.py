@@ -215,3 +215,16 @@ class RetryingUnit:
 
     async def disconnect(self) -> None:
         await self._unit.disconnect()
+
+    # modbus-connection 4.12 added two link requests to the unit protocol.
+    # Forward them when the wrapped unit has them; a 4.10 unit does not.
+
+    def require_timeout(self, seconds: float | None) -> None:
+        require = getattr(self._unit, "require_timeout", None)
+        if require is not None:
+            require(seconds)
+
+    def require_connect_delay(self, seconds: float | None) -> None:
+        require = getattr(self._unit, "require_connect_delay", None)
+        if require is not None:
+            require(seconds)

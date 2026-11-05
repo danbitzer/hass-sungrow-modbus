@@ -171,3 +171,31 @@ async def test_wrapper_implements_the_whole_unit_protocol(
     await retrying.disconnect()
     assert fired == []  # disconnect() drops the link without firing
     unsubscribe()
+
+
+async def test_link_requests_are_forwarded_when_the_unit_has_them(
+    unit: MockModbusUnit,
+) -> None:
+    """modbus-connection 4.12 added require_timeout / require_connect_delay
+    to the unit protocol; the wrapper forwards them and stays a ModbusUnit
+    on either side of that release."""
+    calls: list[tuple[str, float | None]] = []
+
+    class Newer:
+        def __getattr__(self, name: str) -> object:
+            return getattr(unit, name)
+
+        def require_timeout(self, seconds: float | None) -> None:
+            calls.append(("timeout", seconds))
+
+        def require_connect_delay(self, seconds: float | None) -> None:
+            calls.append(("connect_delay", seconds))
+
+    retrying = RetryingUnit(Newer())  # type: ignore[arg-type]
+    retrying.require_timeout(5.0)
+    retrying.require_connect_delay(None)
+    assert calls == [("timeout", 5.0), ("connect_delay", None)]
+
+    older = RetryingUnit(unit)  # a 4.10 unit: the requests are a no-op
+    older.require_timeout(5.0)
+    older.require_connect_delay(0.5)
