@@ -93,6 +93,20 @@ fenced by an automation that could not revert (Numbat's `hold` or
 The dongle's hotspot sleeps again after a while; press three times again
 if it disappears.
 
+## 3a. Be careful what you touch in the app
+
+Settings changed in iSolarCloud during an outage persist after it. After
+the Oct 2026 outage the battery stopped discharging at local midnight and
+ran the house from the grid for a day: a discharge time window changed in
+the app's Energy Management Parameters was the cause. Those windows
+(weekday and weekend charge/discharge times, charge/discharge start
+power) are not served over Modbus, so neither the integration nor its
+diagnostics can see them. Only change EMS mode, the two battery power
+limits, PV limitation and the backup option during an outage, and note
+anything else you change so it can be checked afterwards. If the battery
+later sits idle while the house imports, the time windows are the first
+thing to look at.
+
 ## 4. After power returns
 
 1. HA comes back on its own; the integration reconnects when the dongle
