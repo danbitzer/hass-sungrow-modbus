@@ -1,19 +1,19 @@
 # PV stalled: the limitation is off and the solar forecast says PV should be
-# producing, yet PV sits near zero while the battery runs the house. This is
-# the SH-T stall seen after a PV restore; lifting and re-applying the export
-# limit clears it.
+# producing, yet PV sits near zero while the house draws power (from the
+# battery or the grid; either way PV is not serving it). This is the SH-T
+# stall seen after a PV restore; lifting and re-applying the export limit
+# clears it.
 #
-# Two triggers, either of which fires after its reading has held for ten
-# minutes (a numeric condition cannot hold a duration, so the triggers carry
-# it; a once-a-minute check would fire on a single stray reading). The
-# conditions then confirm the whole picture. Needs the Open-Meteo Solar
-# Forecast integration (sensor.home_power_production_now, in W). One
+# One trigger: PV power has been below 150 W for ten minutes (a numeric
+# condition cannot hold a duration, so the trigger carries it). The
+# conditions then confirm daylight and a real load. Needs the Open-Meteo
+# Solar Forecast integration (sensor.home_power_production_now, in W). One
 # notification per hour at most.
 #
 # Paste into Settings → Automations → Create → Edit in YAML. Adjust the
 # entity ids if your device is not "Sungrow SH15T", and the notify service.
 alias: Sungrow PV stalled
-description: PV near zero in daylight with the limitation off while the battery runs the house.
+description: PV near zero in daylight with the limitation off while the house draws power.
 mode: single
 triggers:
   - trigger: numeric_state
@@ -21,35 +21,27 @@ triggers:
     below: 150
     for:
       minutes: 10
-  - trigger: numeric_state
-    entity_id: sensor.sungrow_sh15t_battery_power
-    above: 300
-    for:
-      minutes: 10
 conditions:
   - condition: state
     entity_id: switch.sungrow_sh15t_pv_limitation
     state: "off"
+  # the forecast says PV should be producing (allows for cloud)
   - condition: numeric_state
     entity_id: sensor.home_power_production_now
     above: 1500
+  # a real load: with the battery full and export capped, PV legitimately
+  # derates to the house load, so a small load is not a stall
   - condition: numeric_state
     entity_id: sensor.sungrow_sh15t_load_power
-    above: 300
-  - condition: numeric_state
-    entity_id: sensor.sungrow_sh15t_pv_power
-    below: 150
-  - condition: numeric_state
-    entity_id: sensor.sungrow_sh15t_battery_power
     above: 300
 actions:
   - action: notify.mobile_app_dans_iphone
     data:
       title: PV stalled
       message: >-
-        PV is near zero in daylight with the limitation off while the battery
-        runs the house. Lifting and re-applying the export limit usually
-        clears it.
+        PV is near zero in daylight with the limitation off while the house
+        draws power. Lifting and re-applying the export limit usually clears
+        it.
       data:
         tag: sungrow-pv-stalled
   - delay:
