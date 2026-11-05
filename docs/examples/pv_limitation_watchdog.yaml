@@ -20,13 +20,13 @@ mode: single
 triggers:
   # A. "failed to un-limit": either side of the mismatch has held 10 minutes
   - trigger: state
-    id: stuck_on
+    id: limitation_on
     entity_id: switch.sungrow_sh15t_pv_limitation
     to: "on"
     for:
       minutes: 10
   - trigger: state
-    id: stuck_on
+    id: pv_off_released
     entity_id: sensor.numbat_action
     attribute: pv_off
     to: false
@@ -34,13 +34,13 @@ triggers:
       minutes: 10
   # B. "stalled": PV near zero, or the battery carrying the house, for 10 min
   - trigger: numeric_state
-    id: stalled
+    id: pv_near_zero
     entity_id: sensor.sungrow_sh15t_pv_power
     below: 150
     for:
       minutes: 10
   - trigger: numeric_state
-    id: stalled
+    id: battery_carrying_house
     entity_id: sensor.sungrow_sh15t_battery_power
     above: 300
     for:
@@ -49,7 +49,9 @@ actions:
   - choose:
       - conditions:
           - condition: trigger
-            id: stuck_on
+            id:
+              - limitation_on
+              - pv_off_released
           - condition: state
             entity_id: switch.sungrow_sh15t_pv_limitation
             state: "on"
@@ -81,7 +83,9 @@ actions:
               limit: false
       - conditions:
           - condition: trigger
-            id: stalled
+            id:
+              - pv_near_zero
+              - battery_carrying_house
           - condition: state
             entity_id: switch.sungrow_sh15t_pv_limitation
             state: "off"
