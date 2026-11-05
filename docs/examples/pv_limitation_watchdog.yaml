@@ -7,7 +7,8 @@
 #      the house in daylight — the SH-T stall seen after a PV restore
 #      (lifting and re-applying the export limit clears it).
 #
-# Paste into Settings → Automations → Create → Edit in YAML, or save under
+# Needs the Open-Meteo Solar Forecast integration for the stall check
+# (sensor.home_power_production_now). Paste into Settings → Automations → Create → Edit in YAML, or save under
 # automations.yaml. Adjust the entity ids if your device is not "Sungrow
 # SH15T", and the notify service to your phone.
 alias: Sungrow PV limitation watchdog
@@ -23,12 +24,15 @@ triggers:
          and is_state('sensor.numbat_status', 'ok') }}
     for:
       minutes: 10
-  # B: limitation off, sun well up, PV near zero, battery carrying the house
+  # B: limitation off, the solar forecast says PV should be producing, yet PV
+  #    is near zero and the battery is carrying the house. The Open-Meteo
+  #    forecast (sensor.home_power_production_now, W) allows for cloud, so a
+  #    dark day does not trip this; the sun's position alone would.
   - trigger: template
     id: stalled
     value_template: >-
       {{ is_state('switch.sungrow_sh15t_pv_limitation', 'off')
-         and (state_attr('sun.sun', 'elevation') | float(0)) > 20
+         and (states('sensor.home_power_production_now') | float(0)) > 1500
          and (states('sensor.sungrow_sh15t_load_power') | float(0)) > 300
          and (states('sensor.sungrow_sh15t_pv_power') | float(0))
              < 0.2 * (states('sensor.sungrow_sh15t_load_power') | float(0))
@@ -62,9 +66,9 @@ actions:
             data:
               title: PV stalled
               message: >-
-                PV is {{ states('sensor.sungrow_sh15t_pv_power') }} W with the
-                sun at {{ state_attr('sun.sun', 'elevation') | round }}° while
-                the battery supplies {{ states('sensor.sungrow_sh15t_battery_power') }} W
+                PV is {{ states('sensor.sungrow_sh15t_pv_power') }} W against a
+                forecast of {{ states('sensor.home_power_production_now') | round }} W
+                while the battery supplies {{ states('sensor.sungrow_sh15t_battery_power') }} W
                 of a {{ states('sensor.sungrow_sh15t_load_power') }} W load
                 (limitation off). Lifting and re-applying the export limit
                 usually clears it.
