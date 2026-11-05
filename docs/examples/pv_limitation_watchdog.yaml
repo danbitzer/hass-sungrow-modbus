@@ -92,16 +92,13 @@ actions:
           - condition: numeric_state
             entity_id: sensor.sungrow_sh15t_load_power
             above: 300
+          # the 10-minute persistence is on the triggers above
           - condition: numeric_state
             entity_id: sensor.sungrow_sh15t_pv_power
             below: 150
-            for:
-              minutes: 10
           - condition: numeric_state
             entity_id: sensor.sungrow_sh15t_battery_power
             above: 300
-            for:
-              minutes: 10
         sequence:
           - action: notify.mobile_app_dans_iphone
             data:
