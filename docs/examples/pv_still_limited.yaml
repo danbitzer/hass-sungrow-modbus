@@ -1,0 +1,46 @@
+# PV still limited: Numbat released the PV limitation but the inverter still
+# has it on (a lost write, a dead actuator, a change made in the app).
+#
+# Checks once a minute. Fires when the limitation switch has been on for ten
+# minutes while Numbat's pv_off flag is off and Numbat is healthy; it then
+# notifies, restores PV (the same call the actuator makes), and waits an hour
+# before it can fire again. Delete the restore step for notification only.
+#
+# Paste into Settings → Automations → Create → Edit in YAML. Adjust the
+# entity ids if your device is not "Sungrow SH15T", the notify service, and
+# pick your inverter in the restore step.
+alias: Sungrow PV still limited
+description: Numbat has released the PV limitation but the inverter still has it on.
+mode: single
+triggers:
+  - trigger: time_pattern
+    minutes: "/1"
+conditions:
+  - condition: state
+    entity_id: switch.sungrow_sh15t_pv_limitation
+    state: "on"
+    for:
+      minutes: 10
+  - condition: state
+    entity_id: sensor.numbat_action
+    attribute: pv_off
+    state: false
+  - condition: state
+    entity_id: sensor.numbat_status
+    state: ok
+actions:
+  - action: notify.mobile_app_dans_iphone
+    data:
+      title: PV still limited
+      message: >-
+        PV limitation has been on for 10 minutes while Numbat is not asking
+        for it. Restoring PV.
+      data:
+        tag: sungrow-pv-still-limited
+  - action: sungrow.set_pv_limitation
+    data:
+      device_id: YOUR_SUNGROW_DEVICE_ID
+      limit: false
+  # cooldown: with mode single, nothing else can fire for an hour
+  - delay:
+      hours: 1
