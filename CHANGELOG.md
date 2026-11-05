@@ -7,10 +7,10 @@
   the unit protocol (a no-op on 4.10), so the wrapper is still a
   `ModbusUnit` on either side of that release. This is what the library CI
   job, which installs the newest modbus-connection, had been failing on.
-- `docs/examples/pv_limitation_watchdog.yaml`: an automation that notifies
-  (and restores PV) when the PV limitation stays on after Numbat releases
-  it, and notifies when PV stalls near zero in daylight with the
-  limitation off.
+- `docs/examples/pv_still_limited.yaml` (notify and restore PV when the
+  limitation stays on after Numbat releases it) and `pv_stalled.yaml`
+  (notify when PV sits near zero in daylight with the limitation off while
+  the battery runs the house).
 - `docs/outage-runbook.md`: what to do when the inverter does not provide
   backup (fault 329, clean grid isolation, soft restart, black start, the
   WiNet-S2 hotspot, and which app settings not to touch).

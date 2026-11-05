@@ -69,8 +69,8 @@ alarm words are exposed as "… code" diagnostics, disabled by default.
 
 ## Recipes and runbooks
 
-- `docs/examples/pv_limitation_watchdog.yaml`: notify when PV stays limited
-  or stalls after a negative-price window.
+- `docs/examples/pv_still_limited.yaml` and `pv_stalled.yaml`: notify when PV
+  stays limited or stalls after a negative-price window.
 - `docs/outage-runbook.md`: when the inverter does not provide backup.
 - `docs/numbat-migration.md`: driving the actions from Numbat.
 
