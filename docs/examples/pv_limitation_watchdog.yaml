@@ -55,12 +55,12 @@ actions:
             state: "on"
             for:
               minutes: 10
+          # (a state condition cannot combine 'for' with an attribute; the
+          # 10-minute hold is on the pv_off trigger above)
           - condition: state
             entity_id: sensor.numbat_action
             attribute: pv_off
             state: false
-            for:
-              minutes: 10
           - condition: state
             entity_id: sensor.numbat_status
             state: ok
